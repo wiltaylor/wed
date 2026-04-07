@@ -85,10 +85,10 @@ pub fn inner_pair(buf: &Buffer, cur: Cursor, open: char, close: char) -> Option<
     let s = s?;
     let mut e = None;
     let mut depth = 0i32;
-    for i in (s + 1)..chars.len() {
-        if chars[i] == open && open != close {
+    for (i, ch) in chars.iter().enumerate().skip(s + 1) {
+        if *ch == open && open != close {
             depth += 1;
-        } else if chars[i] == close {
+        } else if *ch == close {
             if depth == 0 {
                 e = Some(i);
                 break;

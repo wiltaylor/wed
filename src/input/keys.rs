@@ -26,7 +26,6 @@ pub enum Key {
     Null,
 }
 
-
 impl Key {
     pub fn from_event(ev: KeyEvent) -> Self {
         let ctrl = ev.modifiers.contains(KeyModifiers::CONTROL);

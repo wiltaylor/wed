@@ -48,11 +48,13 @@ impl GitPane {
 /// Read a `GitStatusSummary` for the repo at `root`.
 pub fn read_status(root: &Path) -> Option<GitStatusSummary> {
     let repo = git2::Repository::open(root).ok()?;
-    let mut summary = GitStatusSummary::default();
-    summary.branch = repo
-        .head()
-        .ok()
-        .and_then(|h| h.shorthand().map(|s| s.to_string()));
+    let mut summary = GitStatusSummary {
+        branch: repo
+            .head()
+            .ok()
+            .and_then(|h| h.shorthand().map(|s| s.to_string())),
+        ..Default::default()
+    };
 
     let mut opts = git2::StatusOptions::new();
     opts.include_untracked(true).recurse_untracked_dirs(true);

@@ -2,15 +2,13 @@
 
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum YankKind {
     #[default]
     Char,
     Line,
     Block,
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct RegisterEntry {

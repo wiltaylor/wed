@@ -138,6 +138,6 @@ mod tests {
         assert_eq!(s.get(&f)[0].line, 5);
         // File entry pruned when emptied.
         s.toggle(&f, 5);
-        assert!(s.files.get(&f).is_none());
+        assert!(!s.files.contains_key(&f));
     }
 }

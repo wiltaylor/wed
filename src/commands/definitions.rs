@@ -171,8 +171,28 @@ pub fn register_app_commands(reg: &mut CommandRegistry) {
     });
     reg.register("app.reload_config", |_ctx, _| Ok(()));
     reg.register("app.open_config", |_ctx, _| Ok(()));
-    reg.register("buffer.save", |_ctx, _| Ok(()));
-    reg.register("buffer.open", |_ctx, _| Ok(()));
+    reg.register("buffer.save", |ctx, _| {
+        if let Some(b) = ctx.buffers.first_mut() {
+            b.save()?;
+        }
+        Ok(())
+    });
+    reg.register("buffer.open", |ctx, args| {
+        if let Some(path) = args.first() {
+            let buf = crate::editor::Buffer::from_path(path)?;
+            ctx.buffers.push(buf);
+            // Point active view at the new buffer.
+            let new_idx = ctx.buffers.len() - 1;
+            if let Some(tab) = ctx.layout.active_tab_mut() {
+                let id = tab.active_view;
+                if let Some(view) = tab.root.find_mut(id) {
+                    view.buffer_id = crate::app::BufferId(new_idx as u64);
+                    view.cursor = (0, 0);
+                }
+            }
+        }
+        Ok(())
+    });
     reg.register("buffer.goto", |_ctx, _| Ok(()));
     reg.register("buffer.list", |_ctx, _| Ok(()));
     reg.register("cursor.goto_line", |_ctx, _| Ok(()));

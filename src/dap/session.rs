@@ -1,7 +1,7 @@
 //! High-level DAP session: wraps a `DapClient` and tracks debuggee state
 //! (threads, current frame, scopes, variables, current line).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -98,7 +98,7 @@ impl DapSession {
 
     pub async fn set_breakpoints(
         &self,
-        source: &PathBuf,
+        source: &Path,
         breakpoints: &[Breakpoint],
     ) -> Result<DapResponse> {
         let bps: Vec<Value> = breakpoints

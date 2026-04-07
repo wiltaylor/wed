@@ -55,6 +55,7 @@ impl Config {
         Ok(cfg)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         Ok(toml::from_str(text)?)
     }

@@ -33,8 +33,7 @@ pub enum PendingKey {
     Register,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EditorMode {
     #[default]
     Normal,
@@ -46,4 +45,3 @@ pub enum EditorMode {
     Pending(PendingKey),
     Operator(Operator),
 }
-

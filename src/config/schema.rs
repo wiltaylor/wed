@@ -91,7 +91,6 @@ pub struct TerminalConfig {
     pub shell: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LspConfig {
     #[serde(default)]

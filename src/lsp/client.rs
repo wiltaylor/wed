@@ -57,13 +57,8 @@ impl LspClient {
         let server_id = id;
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
-            loop {
-                match read_message(&mut reader).await {
-                    Ok(msg) => {
-                        Self::dispatch(&pending, &notif_tx, msg);
-                    }
-                    Err(_) => break,
-                }
+            while let Ok(msg) = read_message(&mut reader).await {
+                Self::dispatch(&pending, &notif_tx, msg);
             }
             let _ = server_id;
         });

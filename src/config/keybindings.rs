@@ -105,6 +105,7 @@ impl ModeKey {
             EditorMode::Replace => ModeKey::Replace,
         }
     }
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         Some(match s {
             "normal" => ModeKey::Normal,

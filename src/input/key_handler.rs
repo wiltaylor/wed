@@ -64,6 +64,25 @@ fn buf(app: &App) -> Option<&Buffer> {
     app.buffers.get(i)
 }
 
+fn op_char(op: Operator) -> char {
+    match op {
+        Operator::Delete => 'd',
+        Operator::Change => 'c',
+        Operator::Yank => 'y',
+        Operator::Indent => '>',
+        Operator::Dedent => '<',
+        Operator::Comment => 'g',
+    }
+}
+
+fn motion_chars(k: &Key) -> Vec<char> {
+    if let Key::Char(c) = k {
+        vec![*c]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Top-level entry point.
 pub struct KeyHandler;
 
@@ -194,6 +213,8 @@ impl KeyHandler {
                     kind: "x".into(),
                     count,
                     inserted: String::new(),
+                    operator: None,
+                    motion: Vec::new(),
                 };
                 app.pending.reset();
             }
@@ -213,6 +234,8 @@ impl KeyHandler {
                     kind: "p".into(),
                     count,
                     inserted: String::new(),
+                    operator: None,
+                    motion: Vec::new(),
                 };
                 app.pending.reset();
             }
@@ -315,6 +338,7 @@ impl KeyHandler {
                     Self::motion(app, |b, c| motions::find_char(b, c, ch, !fwd, till, count));
                 }
             }
+            Key::Char('r') => app.mode = EditorMode::Pending(PendingKey::Replace),
             Key::Char('R') => app.mode = EditorMode::Replace,
             Key::Char(':') => app.mode = EditorMode::Command,
             Key::Char('/') => app.mode = EditorMode::Search,
@@ -481,6 +505,35 @@ impl KeyHandler {
                 app.pending.last_find = Some((ch, forward, till));
                 app.mode = EditorMode::Normal;
             }
+            (PendingKey::SetMark, Key::Char(ch)) if ch.is_ascii_lowercase() => {
+                let cur = cursor_of(app);
+                if let Some(b) = buf_mut(app) {
+                    b.marks.set(ch, cur);
+                }
+                app.mode = EditorMode::Normal;
+            }
+            (PendingKey::JumpMark, Key::Char(ch)) if ch.is_ascii_lowercase() => {
+                let target = buf(app).and_then(|b| b.marks.get(ch));
+                if let Some(c) = target {
+                    set_cursor(app, c);
+                }
+                app.mode = EditorMode::Normal;
+            }
+            (PendingKey::Replace, Key::Char(ch)) => {
+                let cur = cursor_of(app);
+                if let Some(b) = buf_mut(app) {
+                    let pos = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
+                    let end = (pos + 1).min(b.len_bytes());
+                    if end > pos {
+                        b.delete(pos..end);
+                    }
+                    b.insert(pos, &ch.to_string());
+                }
+                app.mode = EditorMode::Normal;
+            }
             (_, Key::Esc) => {
                 app.mode = EditorMode::Normal;
                 app.pending.reset();
@@ -521,9 +574,11 @@ impl KeyHandler {
             );
             Self::apply_line_op(app, op, start_row, end_row);
             app.last_change = LastChange {
-                kind: format!("{:?}_line", op),
+                kind: format!("{op:?}_line"),
                 count,
                 inserted: String::new(),
+                operator: Some(op_char(op)),
+                motion: vec![op_char(op)],
             };
             app.pending.reset();
             app.mode = if matches!(op, Operator::Change) {
@@ -658,9 +713,11 @@ impl KeyHandler {
         let (lo, hi) = if bs <= be { (bs, be) } else { (be, bs) };
         Self::apply_byte_range_op(app, op, lo, hi);
         app.last_change = LastChange {
-            kind: format!("{:?}_motion", op),
+            kind: format!("{op:?}_motion"),
             count,
             inserted: String::new(),
+            operator: Some(op_char(op)),
+            motion: motion_chars(&key),
         };
         app.pending.reset();
         app.mode = if matches!(op, Operator::Change) {
@@ -762,16 +819,67 @@ impl KeyHandler {
 
     fn handle_visual(app: &mut App, kind: VisualKind, key: Key) {
         match key {
-            Key::Esc => app.mode = EditorMode::Normal,
+            Key::Esc => {
+                app.pending.visual_anchor = None;
+                app.mode = EditorMode::Normal;
+            }
             Key::Char('h') => Self::motion(app, |b, c| motions::left(b, c, 1)),
             Key::Char('l') => Self::motion(app, |b, c| motions::right(b, c, 1)),
             Key::Char('j') => Self::motion(app, |b, c| motions::down(b, c, 1)),
             Key::Char('k') => Self::motion(app, |b, c| motions::up(b, c, 1)),
-            // d/c/y on visual: TODO use anchor; without an anchor stored, treat as line for V
+            Key::Char('w') => Self::motion(app, |b, c| motions::word_forward(b, c, 1)),
+            Key::Char('b') => Self::motion(app, |b, c| motions::word_backward(b, c, 1)),
+            Key::Char('$') => Self::motion(app, motions::line_end),
+            Key::Char('0') => Self::motion(app, motions::line_start),
             Key::Char('d') | Key::Char('c') | Key::Char('y') => {
-                app.mode = EditorMode::Normal;
+                let op = match key {
+                    Key::Char('d') => Operator::Delete,
+                    Key::Char('c') => Operator::Change,
+                    _ => Operator::Yank,
+                };
+                Self::apply_visual_op(app, kind, op);
+                app.pending.visual_anchor = None;
+                app.mode = if matches!(op, Operator::Change) {
+                    EditorMode::Insert
+                } else {
+                    EditorMode::Normal
+                };
             }
             _ => {}
+        }
+    }
+
+    fn apply_visual_op(app: &mut App, kind: VisualKind, op: Operator) {
+        let head = cursor_of(app);
+        let anchor = app.pending.visual_anchor.unwrap_or(head);
+        match kind {
+            VisualKind::Line => {
+                let (s, e) = if anchor.row <= head.row {
+                    (anchor.row, head.row)
+                } else {
+                    (head.row, anchor.row)
+                };
+                Self::apply_line_op(app, op, s, e);
+            }
+            VisualKind::Char | VisualKind::Block => {
+                let (a, h) = ((anchor.row, anchor.col), (head.row, head.col));
+                let (lo_p, hi_p) = if a <= h { (a, h) } else { (h, a) };
+                let (bs, be) = {
+                    let b = buf(app).unwrap();
+                    let bs = b.point_to_byte(Point {
+                        row: lo_p.0,
+                        col: lo_p.1,
+                    });
+                    let mut be = b.point_to_byte(Point {
+                        row: hi_p.0,
+                        col: hi_p.1,
+                    });
+                    // inclusive of head in vim
+                    be = (be + 1).min(b.len_bytes());
+                    (bs, be)
+                };
+                Self::apply_byte_range_op(app, op, bs, be);
+            }
         }
     }
 
@@ -779,8 +887,25 @@ impl KeyHandler {
         let lc = app.last_change.clone();
         if lc.kind == "insert" && !lc.inserted.is_empty() {
             Self::insert_str(app, &lc.inserted);
+            return;
         }
-        // Other repeat kinds are placeholder TODOs.
+        // Replay operator+motion (e.g. dw, ciw, dd) by re-feeding the keys.
+        if let Some(opc) = lc.operator {
+            // Save current last_change so the replay doesn't recursively
+            // overwrite it indefinitely (we still let it update once).
+            let saved = app.last_change.clone();
+            KeyHandler::handle(app, Key::Char(opc));
+            for ch in &lc.motion {
+                KeyHandler::handle(app, Key::Char(*ch));
+            }
+            // Restore so consecutive `.` keep replaying the same change.
+            app.last_change = saved;
+        }
+    }
+
+    /// Insert a bracketed-paste payload at the cursor.
+    pub fn paste(app: &mut App, s: &str) {
+        Self::insert_str(app, s);
     }
 }
 
@@ -904,6 +1029,77 @@ mod tests {
         KeyHandler::handle(&mut app, Key::Esc);
         KeyHandler::handle(&mut app, Key::Char('.'));
         assert!(app.buffers[0].rope.to_string().contains("aa"));
+    }
+
+    #[test]
+    fn visual_char_delete() {
+        let mut app = app_with("hello world");
+        KeyHandler::handle(&mut app, Key::Char('v'));
+        for _ in 0..4 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
+        KeyHandler::handle(&mut app, Key::Char('d'));
+        assert_eq!(app.buffers[0].rope.to_string(), " world");
+        assert_eq!(app.mode, EditorMode::Normal);
+    }
+
+    #[test]
+    fn visual_char_change() {
+        let mut app = app_with("hello world");
+        KeyHandler::handle(&mut app, Key::Char('v'));
+        for _ in 0..4 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
+        KeyHandler::handle(&mut app, Key::Char('c'));
+        assert_eq!(app.buffers[0].rope.to_string(), " world");
+        assert_eq!(app.mode, EditorMode::Insert);
+    }
+
+    #[test]
+    fn visual_char_yank() {
+        let mut app = app_with("hello world");
+        KeyHandler::handle(&mut app, Key::Char('v'));
+        for _ in 0..4 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
+        KeyHandler::handle(&mut app, Key::Char('y'));
+        assert_eq!(app.buffers[0].rope.to_string(), "hello world");
+        assert_eq!(app.buffers[0].registers.get('"').unwrap().text, "hello");
+        assert_eq!(app.mode, EditorMode::Normal);
+    }
+
+    #[test]
+    fn mark_set_and_jump() {
+        let mut app = app_with("line1\nline2\nline3\n");
+        KeyHandler::handle(&mut app, Key::Char('j'));
+        KeyHandler::handle(&mut app, Key::Char('m'));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        KeyHandler::handle(&mut app, Key::Char('g'));
+        KeyHandler::handle(&mut app, Key::Char('g'));
+        assert_eq!(cursor_of(&app).row, 0);
+        KeyHandler::handle(&mut app, Key::Char('\''));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        assert_eq!(cursor_of(&app).row, 1);
+    }
+
+    #[test]
+    fn semicolon_repeats_find() {
+        let mut app = app_with("a.b.c.d");
+        KeyHandler::handle(&mut app, Key::Char('f'));
+        KeyHandler::handle(&mut app, Key::Char('.'));
+        assert_eq!(cursor_of(&app).col, 1);
+        KeyHandler::handle(&mut app, Key::Char(';'));
+        assert_eq!(cursor_of(&app).col, 3);
+    }
+
+    #[test]
+    fn dot_repeat_dw() {
+        let mut app = app_with("foo bar baz qux");
+        KeyHandler::handle(&mut app, Key::Char('d'));
+        KeyHandler::handle(&mut app, Key::Char('w'));
+        assert_eq!(app.buffers[0].rope.to_string(), "bar baz qux");
+        KeyHandler::handle(&mut app, Key::Char('.'));
+        assert_eq!(app.buffers[0].rope.to_string(), "baz qux");
     }
 
     #[test]
