@@ -31,6 +31,10 @@ pub enum AppEvent {
     Paste(String),
     LspDiagnostics { server: ServerId, uri: String },
     LspHoverContents { contents: Option<lsp_types::Hover> },
+    LspGotoLocation {
+        label: &'static str,
+        locations: Vec<lsp_types::Location>,
+    },
     LspCompletion { request: RequestId },
     LspHover { request: RequestId },
     LspDefinition { request: RequestId },
@@ -85,6 +89,35 @@ pub struct App {
     pub pending_lsp_attach: Vec<usize>,
     /// Active LSP info popup (diagnostics + hover) shown on `<leader>k`.
     pub hover_popup: Option<HoverPopup>,
+    /// Parallel to `app.picker`'s items when that picker was populated by
+    /// an LSP goto command — index matches picker's item index.
+    pub lsp_goto_results: Vec<lsp_types::Location>,
+}
+
+/// Kind of LSP navigation request.
+#[derive(Debug, Clone, Copy)]
+pub enum LspGotoKind {
+    Definition,
+    Implementation,
+    References,
+}
+
+impl LspGotoKind {
+    fn method(self) -> &'static str {
+        use lsp_types::request::Request as LspRequest;
+        match self {
+            Self::Definition => <lsp_types::request::GotoDefinition as LspRequest>::METHOD,
+            Self::Implementation => <lsp_types::request::GotoImplementation as LspRequest>::METHOD,
+            Self::References => <lsp_types::request::References as LspRequest>::METHOD,
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Definition => "definition",
+            Self::Implementation => "implementation",
+            Self::References => "references",
+        }
+    }
 }
 
 /// State for the on-demand info popup triggered by `lsp.hover`.
@@ -138,6 +171,7 @@ impl App {
             highlight: crate::highlight::HighlightEngine::new(),
             pending_lsp_attach: Vec::new(),
             hover_popup: None,
+            lsp_goto_results: Vec::new(),
         }
     }
 
@@ -248,6 +282,10 @@ impl App {
                 }
                 return;
             }
+            AppEvent::LspGotoLocation { label, locations } => {
+                self.handle_lsp_goto(label, locations);
+                return;
+            }
             AppEvent::Key(k) => {
                 // Any key dismisses the hover popup; the `lsp.hover` command
                 // (triggered via leader) repopulates it after KeyHandler runs.
@@ -281,6 +319,151 @@ impl App {
                 self.flush_lsp_did_change();
             }
             _ => {}
+        }
+    }
+
+    /// Fire a goto-definition / implementation / references request for the
+    /// symbol under the cursor. The response comes back via
+    /// `AppEvent::LspGotoLocation` and is handled by `handle_lsp_goto`.
+    pub fn trigger_lsp_goto(&mut self, kind: LspGotoKind) {
+        self.hover_popup = None;
+        let Some(tab) = self.layout.active_tab() else {
+            return;
+        };
+        let Some(view) = tab.root.find(tab.active_view) else {
+            return;
+        };
+        let cursor_row = view.cursor.0;
+        let cursor_col = view.cursor.1;
+        let buffer_idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get(buffer_idx) else {
+            return;
+        };
+        let Some(uri) = buf.lsp_uri.clone() else {
+            self.status_message = Some(("no LSP attached".into(), false));
+            return;
+        };
+        let Some(lang_id) = buf.language_id.clone() else {
+            return;
+        };
+        let Some(client) = self.lsp.client_for_language(&lang_id) else {
+            self.status_message = Some(("LSP not ready".into(), false));
+            return;
+        };
+        self.status_message = Some((format!("{}: searching…", kind.label()), false));
+        let event_tx = self.event_tx.clone();
+        let position = lsp_types::Position {
+            line: cursor_row as u32,
+            character: cursor_col as u32,
+        };
+        let method = kind.method();
+        let label = kind.label();
+        tokio::spawn(async move {
+            use lsp_types::{
+                GotoDefinitionParams, GotoDefinitionResponse, ReferenceContext, ReferenceParams,
+                TextDocumentIdentifier, TextDocumentPositionParams,
+            };
+            let text_doc_pos = TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position,
+            };
+            let locations: Vec<lsp_types::Location> = match kind {
+                LspGotoKind::References => {
+                    let params = ReferenceParams {
+                        text_document_position: text_doc_pos,
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                        context: ReferenceContext {
+                            include_declaration: true,
+                        },
+                    };
+                    match client.request::<_, Option<Vec<lsp_types::Location>>>(method, params).await {
+                        Ok(Some(v)) => v,
+                        Ok(None) => Vec::new(),
+                        Err(e) => {
+                            tracing::warn!("lsp {label} failed: {e:#}");
+                            Vec::new()
+                        }
+                    }
+                }
+                LspGotoKind::Definition | LspGotoKind::Implementation => {
+                    let params = GotoDefinitionParams {
+                        text_document_position_params: text_doc_pos,
+                        work_done_progress_params: Default::default(),
+                        partial_result_params: Default::default(),
+                    };
+                    match client
+                        .request::<_, Option<GotoDefinitionResponse>>(method, params)
+                        .await
+                    {
+                        Ok(Some(r)) => flatten_goto_response(r),
+                        Ok(None) => Vec::new(),
+                        Err(e) => {
+                            tracing::warn!("lsp {label} failed: {e:#}");
+                            Vec::new()
+                        }
+                    }
+                }
+            };
+            let _ = event_tx.send(AppEvent::LspGotoLocation { label, locations });
+        });
+    }
+
+    /// Handle an incoming `LspGotoLocation` — jump directly on single result,
+    /// populate a picker on multi, status message on empty.
+    pub fn handle_lsp_goto(&mut self, label: &'static str, locations: Vec<lsp_types::Location>) {
+        if locations.is_empty() {
+            self.status_message = Some((format!("{label}: no results"), false));
+            return;
+        }
+        if locations.len() == 1 {
+            self.status_message = None;
+            self.jump_to_location(&locations[0]);
+            return;
+        }
+        // Multi: populate a picker. Reuse `app.picker: Option<Picker<PathBuf>>`
+        // by storing synthetic label-paths like `file.rs:line:col` and
+        // keeping the real Locations in `lsp_goto_results` parallel.
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let items: Vec<std::path::PathBuf> = locations
+            .iter()
+            .map(|loc| {
+                let p = uri_to_path(&loc.uri)
+                    .unwrap_or_else(|| std::path::PathBuf::from(loc.uri.as_str()));
+                let rel = p.strip_prefix(&cwd).unwrap_or(&p).to_path_buf();
+                let line = loc.range.start.line + 1;
+                let col = loc.range.start.character + 1;
+                std::path::PathBuf::from(format!("{}:{line}:{col}", rel.display()))
+            })
+            .collect();
+        self.lsp_goto_results = locations;
+        self.picker = Some(crate::panes::picker::Picker::new(items));
+        self.picker_query.clear();
+        self.status_message = Some((
+            format!("{label}: {} results", self.lsp_goto_results.len()),
+            false,
+        ));
+    }
+
+    /// Open a file (or switch to its existing tab) and move the cursor to
+    /// the given LSP `Location`.
+    pub fn jump_to_location(&mut self, loc: &lsp_types::Location) {
+        let Some(path) = uri_to_path(&loc.uri) else {
+            self.status_message = Some((format!("bad uri: {}", loc.uri.as_str()), true));
+            return;
+        };
+        if let Err(e) = self.open_file_in_new_tab(&path) {
+            self.status_message = Some((format!("open failed: {e}"), true));
+            return;
+        }
+        let row = loc.range.start.line as usize;
+        let col = loc.range.start.character as usize;
+        if let Some(tab) = self.layout.active_tab_mut() {
+            let id = tab.active_view;
+            if let Some(view) = tab.root.find_mut(id) {
+                view.cursor = (row, col);
+                view.scroll.0 = row.saturating_sub(5);
+            }
         }
     }
 
@@ -649,4 +832,28 @@ pub(crate) fn path_to_uri(path: &std::path::Path) -> Option<lsp_types::Uri> {
     use std::str::FromStr;
     let url = url::Url::from_file_path(path).ok()?;
     lsp_types::Uri::from_str(url.as_str()).ok()
+}
+
+/// Inverse of `path_to_uri` — convert a `file://` LSP Uri back into a local path.
+pub(crate) fn uri_to_path(uri: &lsp_types::Uri) -> Option<std::path::PathBuf> {
+    let url = url::Url::parse(uri.as_str()).ok()?;
+    url.to_file_path().ok()
+}
+
+/// Flatten a `GotoDefinitionResponse` into a flat `Vec<Location>`.
+pub(crate) fn flatten_goto_response(
+    resp: lsp_types::GotoDefinitionResponse,
+) -> Vec<lsp_types::Location> {
+    use lsp_types::GotoDefinitionResponse;
+    match resp {
+        GotoDefinitionResponse::Scalar(loc) => vec![loc],
+        GotoDefinitionResponse::Array(v) => v,
+        GotoDefinitionResponse::Link(links) => links
+            .into_iter()
+            .map(|l| lsp_types::Location {
+                uri: l.target_uri,
+                range: l.target_selection_range,
+            })
+            .collect(),
+    }
 }

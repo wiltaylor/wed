@@ -252,6 +252,9 @@ impl Keybindings {
             ("q", "app.quit"),
             ("e", "sidebar.left_toggle"),
             ("k", "lsp.hover"),
+            ("gd", "lsp.definition"),
+            ("gi", "lsp.implementation"),
+            ("gr", "lsp.references"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

@@ -406,6 +406,30 @@ impl LspManager {
         Ok(r)
     }
 
+    pub async fn implementation(
+        &mut self,
+        uri: Uri,
+        pos: Position,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let req_id = self.alloc_request_id();
+        let Some(client) = self.any_client().cloned() else {
+            return Ok(None);
+        };
+        let params = GotoDefinitionParams {
+            text_document_position_params: Self::text_doc_pos(uri, pos),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let r: Option<GotoDefinitionResponse> = client
+            .request(
+                <lsp_types::request::GotoImplementation as LspRequest>::METHOD,
+                params,
+            )
+            .await?;
+        self.post(AppEvent::LspDefinition { request: req_id });
+        Ok(r)
+    }
+
     pub async fn references(&mut self, uri: Uri, pos: Position) -> Result<Option<Vec<Location>>> {
         let req_id = self.alloc_request_id();
         let Some(client) = self.any_client().cloned() else {

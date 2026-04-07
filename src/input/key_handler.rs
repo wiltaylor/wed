@@ -367,6 +367,15 @@ impl KeyHandler {
             "lsp.hover" => {
                 app.trigger_hover_popup();
             }
+            "lsp.definition" => {
+                app.trigger_lsp_goto(crate::app::LspGotoKind::Definition);
+            }
+            "lsp.implementation" => {
+                app.trigger_lsp_goto(crate::app::LspGotoKind::Implementation);
+            }
+            "lsp.references" => {
+                app.trigger_lsp_goto(crate::app::LspGotoKind::References);
+            }
             "sidebar.left_toggle" => {
                 let sb = &mut app.layout.left_sidebar;
                 if sb.panes.is_empty() {
@@ -410,6 +419,7 @@ impl KeyHandler {
             Key::Esc => {
                 app.picker = None;
                 app.picker_query.clear();
+                app.lsp_goto_results.clear();
             }
             Key::Up => picker.move_up(),
             Key::Down => picker.move_down(),
@@ -422,10 +432,26 @@ impl KeyHandler {
                 picker.set_query(app.picker_query.clone());
             }
             Key::Enter => {
+                // If an LSP goto populated this picker, the selected index
+                // maps to `app.lsp_goto_results` (kept parallel).
+                let goto_idx = if !app.lsp_goto_results.is_empty() {
+                    picker
+                        .matches
+                        .get(picker.selected)
+                        .map(|(i, _)| *i)
+                } else {
+                    None
+                };
                 let chosen = picker.current().cloned();
                 app.picker = None;
                 app.picker_query.clear();
-                if let Some(path) = chosen {
+                if let Some(i) = goto_idx {
+                    let loc = app.lsp_goto_results.get(i).cloned();
+                    app.lsp_goto_results.clear();
+                    if let Some(loc) = loc {
+                        app.jump_to_location(&loc);
+                    }
+                } else if let Some(path) = chosen {
                     if let Err(e) = app.open_file_in_new_tab(&path) {
                         app.status_message = Some((format!("open failed: {e}"), true));
                     }
