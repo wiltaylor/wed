@@ -19,6 +19,11 @@ pub trait Pane: Send + Sync {
     fn handle_key(&mut self, _key: KeyEvent) {}
     fn handle_mouse(&mut self, _mouse: MouseEvent) {}
     fn update(&mut self, _event: &AppEvent) {}
+    /// If the pane has produced a path it wants the host to open
+    /// (e.g. file browser activation), return and clear it.
+    fn take_opened_path(&mut self) -> Option<std::path::PathBuf> {
+        None
+    }
 
     async fn on_event(&mut self) {}
 }

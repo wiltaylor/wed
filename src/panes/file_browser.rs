@@ -1,6 +1,11 @@
 use crate::layout::Pane;
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -120,6 +125,49 @@ impl FileBrowserPane {
 impl Pane for FileBrowserPane {
     fn name(&self) -> &str {
         "file_browser"
+    }
+    fn render(&self, frame: &mut Frame<'_>, area: Rect) {
+        let visible = self.visible();
+        let height = area.height as usize;
+        let start = self.selected.saturating_sub(height.saturating_sub(1));
+        let lines: Vec<Line> = visible
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(height)
+            .map(|(i, e)| {
+                let name = e
+                    .path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let glyph = if e.is_dir {
+                    if self.expanded.contains(&e.path) {
+                        "▾ "
+                    } else {
+                        "▸ "
+                    }
+                } else {
+                    "  "
+                };
+                let indent = "  ".repeat(e.depth.saturating_sub(1));
+                let text = format!("{indent}{glyph}{name}");
+                let mut style = Style::default().fg(if e.is_dir {
+                    Color::Cyan
+                } else {
+                    Color::Gray
+                });
+                if i == self.selected {
+                    style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+                }
+                Line::from(Span::styled(text, style))
+            })
+            .collect();
+        let para = Paragraph::new(lines);
+        frame.render_widget(para, area);
+    }
+    fn take_opened_path(&mut self) -> Option<PathBuf> {
+        self.last_opened.take()
     }
     fn handle_key(&mut self, key: KeyEvent) {
         match key.code {

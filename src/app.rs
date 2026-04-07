@@ -66,6 +66,11 @@ pub struct App {
     pub search: crate::editor::search::SearchState,
     pub command_line: crate::commands::command_line::CommandLineState,
     pub status_message: Option<(String, bool)>,
+    pub keybindings: crate::config::keybindings::Keybindings,
+    pub leader_seq: Option<Vec<crate::input::keys::Key>>,
+    pub picker: Option<crate::panes::picker::Picker<std::path::PathBuf>>,
+    pub picker_query: String,
+    pub sidebar_focused: bool,
     pub want_col: usize,
 }
 
@@ -90,6 +95,11 @@ impl App {
             search: crate::editor::search::SearchState::default(),
             command_line: crate::commands::command_line::CommandLineState::new(),
             status_message: None,
+            keybindings: crate::config::keybindings::Keybindings::defaults(),
+            leader_seq: None,
+            picker: None,
+            picker_query: String::new(),
+            sidebar_focused: false,
             want_col: 0,
         }
     }

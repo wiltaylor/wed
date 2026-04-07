@@ -232,7 +232,7 @@ impl Keybindings {
             ("fb", "buffer.list"),
             ("w", "buffer.save"),
             ("q", "app.quit"),
-            ("e", "app.open_config"),
+            ("e", "sidebar.left_toggle"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

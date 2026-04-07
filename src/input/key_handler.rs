@@ -89,6 +89,26 @@ pub struct KeyHandler;
 impl KeyHandler {
     pub fn handle(app: &mut App, key: Key) {
         app.status_message = None;
+        // Picker overlay swallows all input.
+        if app.picker.is_some() {
+            Self::handle_picker(app, key);
+            return;
+        }
+        // Sidebar focus swallows all input until released.
+        if app.sidebar_focused {
+            Self::handle_sidebar(app, key);
+            return;
+        }
+        // Active leader sequence: route through the leader trie.
+        if app.leader_seq.is_some() {
+            Self::handle_leader(app, key);
+            return;
+        }
+        // Leader key in normal mode opens a fresh leader sequence.
+        if matches!(app.mode, EditorMode::Normal) && key == app.keybindings.leader_key {
+            app.leader_seq = Some(Vec::new());
+            return;
+        }
         let mode = app.mode;
         match mode {
             EditorMode::Normal => Self::handle_normal(app, key),
@@ -98,6 +118,161 @@ impl KeyHandler {
             EditorMode::Pending(p) => Self::handle_pending(app, p, key),
             EditorMode::Operator(op) => Self::handle_operator_motion(app, op, key),
             EditorMode::Command | EditorMode::Search => Self::handle_command_line(app, key),
+        }
+    }
+
+    fn handle_leader(app: &mut App, key: Key) {
+        use crate::config::keybindings::Resolution;
+        if key == Key::Esc {
+            app.leader_seq = None;
+            return;
+        }
+        let mut seq = app.leader_seq.take().unwrap_or_default();
+        seq.push(key);
+        let mut full = vec![app.keybindings.leader_key];
+        full.extend(seq.iter().copied());
+        match app.keybindings.resolve(EditorMode::Normal, &full) {
+            Resolution::Pending => {
+                app.leader_seq = Some(seq);
+            }
+            Resolution::Match(cmd) => {
+                Self::run_leader_command(app, &cmd.command);
+            }
+            Resolution::NoMatch => {
+                app.status_message =
+                    Some((format!("no leader binding for {:?}", seq), true));
+            }
+        }
+    }
+
+    fn run_leader_command(app: &mut App, name: &str) {
+        match name {
+            "search.files" => {
+                let root =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                app.picker = Some(crate::panes::picker::picker_files(&root));
+                app.picker_query.clear();
+            }
+            "sidebar.left_toggle" => {
+                let sb = &mut app.layout.left_sidebar;
+                if sb.panes.is_empty() {
+                    sb.panes
+                        .push(Box::new(crate::panes::file_browser::FileBrowserPane::default()));
+                }
+                sb.open = !sb.open;
+                app.sidebar_focused = sb.open;
+            }
+            other => {
+                app.status_message =
+                    Some((format!("leader command not wired: {other}"), true));
+            }
+        }
+    }
+
+    fn handle_picker(app: &mut App, key: Key) {
+        let Some(picker) = app.picker.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                app.picker = None;
+                app.picker_query.clear();
+            }
+            Key::Up => picker.move_up(),
+            Key::Down => picker.move_down(),
+            Key::Backspace => {
+                app.picker_query.pop();
+                picker.set_query(app.picker_query.clone());
+            }
+            Key::Char(c) => {
+                app.picker_query.push(c);
+                picker.set_query(app.picker_query.clone());
+            }
+            Key::Enter => {
+                let chosen = picker.current().cloned();
+                app.picker = None;
+                app.picker_query.clear();
+                if let Some(path) = chosen {
+                    match crate::editor::Buffer::from_path(&path) {
+                        Ok(buf) => {
+                            app.buffers.push(buf);
+                            let new_idx = app.buffers.len() - 1;
+                            if let Some(tab) = app.layout.active_tab_mut() {
+                                let id = tab.active_view;
+                                if let Some(view) = tab.root.find_mut(id) {
+                                    view.buffer_id = crate::app::BufferId(new_idx as u64);
+                                    view.cursor = (0, 0);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            app.status_message =
+                                Some((format!("open failed: {e}"), true));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_sidebar(app: &mut App, key: Key) {
+        // Esc returns focus to the editor without closing.
+        if key == Key::Esc {
+            app.sidebar_focused = false;
+            return;
+        }
+        // Let the user drop into : / / from the sidebar — unfocus and
+        // dispatch the key as if it had been pressed in normal mode.
+        if matches!(key, Key::Char(':') | Key::Char('/') | Key::Char('?')) {
+            app.sidebar_focused = false;
+            Self::handle_normal(app, key);
+            return;
+        }
+        {
+            use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+            let code = match key {
+                Key::Char(c) => Some(KeyCode::Char(c)),
+                Key::Enter => Some(KeyCode::Enter),
+                Key::Up => Some(KeyCode::Up),
+                Key::Down => Some(KeyCode::Down),
+                Key::Left => Some(KeyCode::Left),
+                Key::Right => Some(KeyCode::Right),
+                Key::Backspace => Some(KeyCode::Backspace),
+                _ => None,
+            };
+            if let Some(code) = code {
+                let sb = &mut app.layout.left_sidebar;
+                if let Some(pane) = sb.panes.get_mut(sb.active) {
+                    pane.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+                }
+            }
+        }
+        // After dispatch, check if the active pane opened a file.
+        let opened = {
+            let sb = &mut app.layout.left_sidebar;
+            sb.panes
+                .get_mut(sb.active)
+                .and_then(|p| p.take_opened_path())
+        };
+        if let Some(path) = opened {
+            match crate::editor::Buffer::from_path(&path) {
+                Ok(buf) => {
+                    app.buffers.push(buf);
+                    let new_idx = app.buffers.len() - 1;
+                    if let Some(tab) = app.layout.active_tab_mut() {
+                        let id = tab.active_view;
+                        if let Some(view) = tab.root.find_mut(id) {
+                            view.buffer_id = crate::app::BufferId(new_idx as u64);
+                            view.cursor = (0, 0);
+                        }
+                    }
+                    app.sidebar_focused = false;
+                }
+                Err(e) => {
+                    app.status_message = Some((format!("open failed: {e}"), true));
+                }
+            }
         }
     }
 
