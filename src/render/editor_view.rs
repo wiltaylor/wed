@@ -35,11 +35,32 @@ pub fn gutter_width(style: LineNumberStyle, total_lines: usize) -> u16 {
     }
 }
 
-pub fn render(frame: &mut Frame<'_>, app: &App, view: &View, area: Rect, is_active: bool) {
+pub fn render(
+    frame: &mut Frame<'_>,
+    app: &mut App,
+    view: &View,
+    area: Rect,
+    is_active: bool,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let buf = app.buffers.get(view.buffer_id.0 as usize);
+    let buffer_idx = view.buffer_id.0 as usize;
+
+    // Compute highlight spans up front, using a split-borrow so we can
+    // mutably borrow `highlight` and `buffers` simultaneously.
+    let highlight_spans: Vec<crate::highlight::HighlightSpan> = {
+        let crate::app::App {
+            highlight, buffers, ..
+        } = &mut *app;
+        if let Some(buf) = buffers.get_mut(buffer_idx) {
+            highlight.highlight(buf)
+        } else {
+            Vec::new()
+        }
+    };
+
+    let buf = app.buffers.get(buffer_idx);
     let total_lines = buf.map(|b| b.rope.len_lines()).unwrap_or(0);
     let ln_style = line_number_style(app);
     let gw = gutter_width(ln_style, total_lines.max(1));
@@ -81,25 +102,27 @@ pub fn render(frame: &mut Frame<'_>, app: &App, view: &View, area: Rect, is_acti
         }
 
         let text_w = (area.width.saturating_sub(gw)) as usize;
-        let line_text: String = if let Some(b) = buf {
+        let (full_line, line_start_byte): (String, usize) = if let Some(b) = buf {
             if buf_row < total_lines {
                 let line = b.rope.line(buf_row);
                 let s: String = line.chars().collect();
-                let s = s.trim_end_matches('\n').to_string();
-                let chars: Vec<char> = s.chars().collect();
-                if scroll_col >= chars.len() {
-                    String::new()
-                } else {
-                    chars[scroll_col..].iter().take(text_w).collect()
-                }
+                let trimmed = s.trim_end_matches('\n').to_string();
+                (trimmed, b.rope.line_to_byte(buf_row))
             } else {
-                String::new()
+                (String::new(), 0)
             }
         } else {
-            String::new()
+            (String::new(), 0)
         };
 
-        spans.push(Span::raw(line_text));
+        let mut text_spans = crate::render::highlight_render::style_line(
+            &full_line,
+            line_start_byte,
+            scroll_col,
+            text_w,
+            &highlight_spans,
+        );
+        spans.append(&mut text_spans);
         lines.push(Line::from(spans));
     }
 

@@ -75,8 +75,10 @@ pub struct App {
     pub last_editor_view_rects: Vec<(ViewId, ratatui::layout::Rect)>,
     pub last_left_sidebar_rect: ratatui::layout::Rect,
     pub last_tab_rects: Vec<ratatui::layout::Rect>,
+    pub last_tab_close_rects: Vec<ratatui::layout::Rect>,
     pub last_sidebar_click_row: Option<usize>,
     pub want_col: usize,
+    pub highlight: crate::highlight::HighlightEngine,
 }
 
 impl App {
@@ -109,8 +111,10 @@ impl App {
             last_editor_view_rects: Vec::new(),
             last_left_sidebar_rect: ratatui::layout::Rect::default(),
             last_tab_rects: Vec::new(),
+            last_tab_close_rects: Vec::new(),
             last_sidebar_click_row: None,
             want_col: 0,
+            highlight: crate::highlight::HighlightEngine::new(),
         }
     }
 
@@ -131,8 +135,9 @@ impl App {
                 }
             }
         }
-        let buf = crate::editor::Buffer::from_path(path)?;
+        let mut buf = crate::editor::Buffer::from_path(path)?;
         let new_idx = self.buffers.len();
+        buf.id = BufferId(new_idx as u64);
         self.buffers.push(buf);
         let vid = ViewId(new_idx as u64 + 1);
         let mut view = crate::layout::View::new(vid, BufferId(new_idx as u64));

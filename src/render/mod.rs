@@ -142,11 +142,24 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     app.last_editor_rect = editor_rect;
     app.last_editor_view_rects.clear();
     if editor_rect.width > 0 && editor_rect.height > 0 {
-        if let Some(tab) = app.layout.active_tab() {
-            let leaves = tab.root.layout_rects(editor_rect);
-            for (vid, rect) in &leaves {
-                if let Some(view) = tab.root.find(*vid) {
-                    let is_active = *vid == tab.active_view;
+        // Snapshot the layout so we can free the immutable borrow on
+        // `app.layout` before calling `editor_view::render`, which needs
+        // `&mut App` for the highlight engine.
+        let snapshot: Option<(Vec<(crate::app::ViewId, Rect)>, crate::app::ViewId, Vec<(crate::app::ViewId, crate::layout::View)>)> = app
+            .layout
+            .active_tab()
+            .map(|tab| {
+                let leaves = tab.root.layout_rects(editor_rect);
+                let views: Vec<_> = leaves
+                    .iter()
+                    .filter_map(|(vid, _)| tab.root.find(*vid).map(|v| (*vid, v.clone())))
+                    .collect();
+                (leaves, tab.active_view, views)
+            });
+        if let Some((leaves, active_view, views)) = snapshot {
+            for (vid, view) in &views {
+                if let Some((_, rect)) = leaves.iter().find(|(v, _)| v == vid) {
+                    let is_active = *vid == active_view;
                     editor_view::render(frame, app, view, *rect, is_active);
                 }
             }
@@ -177,8 +190,8 @@ mod tests {
     fn renders_empty_with_statusline() {
         let backend = TestBackend::new(40, 6);
         let mut term = Terminal::new(backend).unwrap();
-        let app = App::new();
-        term.draw(|f| render(f, &app)).unwrap();
+        let mut app = App::new();
+        term.draw(|f| render(f, &mut app)).unwrap();
         // Last row should contain the NORMAL mode badge.
         let buf = term.backend().buffer().clone();
         let mut bottom = String::new();

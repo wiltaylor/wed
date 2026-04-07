@@ -33,7 +33,9 @@ async fn main() -> Result<()> {
     if app.layout.tabs.is_empty() {
         use wed::app::{BufferId, ViewId};
         use wed::layout::{SplitNode, Tab, View};
-        app.buffers.push(wed::editor::Buffer::default());
+        let mut scratch = wed::editor::Buffer::default();
+        scratch.id = BufferId(0);
+        app.buffers.push(scratch);
         let view_id = ViewId(1);
         let view = View::new(view_id, BufferId(0));
         let tab = Tab::new("[scratch]", SplitNode::Leaf(view), view_id);

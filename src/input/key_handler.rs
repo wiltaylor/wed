@@ -136,6 +136,33 @@ impl KeyHandler {
                 && row < r.y + r.height
         };
 
+        // Tabline close-button click: close that tab.
+        for (i, r) in app.last_tab_close_rects.clone().iter().enumerate() {
+            if in_rect(*r) {
+                if app.layout.tabs.len() > 1 {
+                    app.layout.tabs.remove(i);
+                    if app.layout.active_tab >= app.layout.tabs.len() {
+                        app.layout.active_tab = app.layout.tabs.len() - 1;
+                    } else if app.layout.active_tab > i {
+                        app.layout.active_tab -= 1;
+                    }
+                } else if let Some(b) = app.buffers.iter().find(|b| b.dirty) {
+                    let name = b
+                        .path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "[No Name]".to_string());
+                    app.status_message = Some((
+                        format!("unsaved changes in {name} (use :q! to force)"),
+                        true,
+                    ));
+                } else {
+                    app.should_quit = true;
+                }
+                return;
+            }
+        }
         // Tabline click: switch to the clicked tab.
         for (i, r) in app.last_tab_rects.clone().iter().enumerate() {
             if in_rect(*r) {

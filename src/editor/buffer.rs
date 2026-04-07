@@ -15,6 +15,30 @@ pub struct Point {
     pub col: usize,
 }
 
+/// A single text mutation, in tree-sitter's `InputEdit` shape (byte
+/// offsets + byte-columned row/col triples). Produced by `Buffer` on
+/// every `insert` / `delete` / `apply_raw` and drained by
+/// `HighlightEngine` for incremental parsing.
+#[derive(Debug, Clone)]
+pub struct BufferEdit {
+    pub start_byte: usize,
+    pub old_end_byte: usize,
+    pub new_end_byte: usize,
+    pub start_row: usize,
+    pub start_col: usize,
+    pub old_end_row: usize,
+    pub old_end_col: usize,
+    pub new_end_row: usize,
+    pub new_end_col: usize,
+}
+
+fn byte_point(rope: &Rope, byte: usize) -> (usize, usize) {
+    let byte = byte.min(rope.len_bytes());
+    let row = rope.byte_to_line(byte);
+    let col = byte - rope.line_to_byte(row);
+    (row, col)
+}
+
 #[derive(Debug, Default)]
 pub struct Buffer {
     pub id: BufferId,
@@ -27,6 +51,7 @@ pub struct Buffer {
     pub marks: Marks,
     pub diagnostics: Vec<lsp_types::Diagnostic>,
     pub version: i32,
+    pub pending_edits: Vec<BufferEdit>,
 }
 
 impl Buffer {
@@ -126,16 +151,30 @@ impl Buffer {
         if text.is_empty() {
             return;
         }
+        let (start_row, start_col) = byte_point(&self.rope, byte_pos);
         let char_idx = self.rope.byte_to_char(byte_pos);
         self.rope.insert(char_idx, text);
+        let new_end_byte = byte_pos + text.len();
+        let (new_end_row, new_end_col) = byte_point(&self.rope, new_end_byte);
         self.dirty = true;
         self.version += 1;
+        self.pending_edits.push(BufferEdit {
+            start_byte: byte_pos,
+            old_end_byte: byte_pos,
+            new_end_byte,
+            start_row,
+            start_col,
+            old_end_row: start_row,
+            old_end_col: start_col,
+            new_end_row,
+            new_end_col,
+        });
         self.history.record(EditOp {
             start: byte_pos,
             removed: String::new(),
             inserted: text.to_string(),
             cursor_before: byte_pos,
-            cursor_after: byte_pos + text.len(),
+            cursor_after: new_end_byte,
         });
     }
 
@@ -144,12 +183,25 @@ impl Buffer {
         if range.start >= range.end {
             return String::new();
         }
+        let (start_row, start_col) = byte_point(&self.rope, range.start);
+        let (old_end_row, old_end_col) = byte_point(&self.rope, range.end);
         let start_c = self.rope.byte_to_char(range.start);
         let end_c = self.rope.byte_to_char(range.end);
         let removed: String = self.rope.slice(start_c..end_c).to_string();
         self.rope.remove(start_c..end_c);
         self.dirty = true;
         self.version += 1;
+        self.pending_edits.push(BufferEdit {
+            start_byte: range.start,
+            old_end_byte: range.end,
+            new_end_byte: range.start,
+            start_row,
+            start_col,
+            old_end_row,
+            old_end_col,
+            new_end_row: start_row,
+            new_end_col: start_col,
+        });
         self.history.record(EditOp {
             start: range.start,
             removed: removed.clone(),
@@ -160,18 +212,35 @@ impl Buffer {
         removed
     }
 
-    /// Apply an edit op (used by undo/redo) WITHOUT recording.
+    /// Apply an edit op (used by undo/redo) WITHOUT recording history,
+    /// but still emitting a `BufferEdit` so the parse tree stays in sync.
     pub(crate) fn apply_raw(&mut self, start: usize, removed_len: usize, inserted: &str) {
+        let old_end_byte = start + removed_len;
+        let (start_row, start_col) = byte_point(&self.rope, start);
+        let (old_end_row, old_end_col) = byte_point(&self.rope, old_end_byte);
         let start_c = self.rope.byte_to_char(start);
         if removed_len > 0 {
-            let end_c = self.rope.byte_to_char(start + removed_len);
+            let end_c = self.rope.byte_to_char(old_end_byte);
             self.rope.remove(start_c..end_c);
         }
         if !inserted.is_empty() {
             self.rope.insert(start_c, inserted);
         }
+        let new_end_byte = start + inserted.len();
+        let (new_end_row, new_end_col) = byte_point(&self.rope, new_end_byte);
         self.dirty = true;
         self.version += 1;
+        self.pending_edits.push(BufferEdit {
+            start_byte: start,
+            old_end_byte,
+            new_end_byte,
+            start_row,
+            start_col,
+            old_end_row,
+            old_end_col,
+            new_end_row,
+            new_end_col,
+        });
     }
 
     /// Undo the most recent batch. Returns the cursor byte position to restore.

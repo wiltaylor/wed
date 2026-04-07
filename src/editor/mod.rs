@@ -9,7 +9,7 @@ pub mod search;
 pub mod selection;
 pub mod text_objects;
 
-pub use buffer::{Buffer, Point};
+pub use buffer::{Buffer, BufferEdit, Point};
 pub use cursor::Cursor;
 pub use history::History;
 pub use marks::Marks;
