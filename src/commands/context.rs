@@ -75,9 +75,9 @@ pub(crate) fn test_ctx(quit: &mut bool) -> CommandContext<'_> {
     // SAFETY: test scratch is process-global and tests touching it are
     // serial. We extend its lifetime to the borrow of `quit`.
     let state: &'static mut TestState = unsafe {
-        let g = STATE.lock().unwrap();
-        let p: *const TestState = g.as_ref().unwrap() as *const _;
-        &mut *(p as *mut TestState)
+        let mut g = STATE.lock().unwrap();
+        let p: *mut TestState = g.as_mut().unwrap() as *mut _;
+        &mut *p
     };
     CommandContext {
         buffers: &mut state.buffers,
