@@ -19,8 +19,8 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
         return;
     }
 
-    let show_tabline = app.config.ui.show_tabline.unwrap_or(true) && !app.layout.tabs.is_empty();
-    let show_status = app.config.ui.show_statusline.unwrap_or(true);
+    let show_tabline = app.config.ui.tabline && !app.layout.tabs.is_empty();
+    let show_status = app.config.ui.statusline;
     let in_cmdline = matches!(app.mode, EditorMode::Command | EditorMode::Search);
 
     // Reserve top row for tabline.

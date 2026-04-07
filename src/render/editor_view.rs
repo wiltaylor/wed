@@ -15,8 +15,8 @@ pub enum LineNumberStyle {
 }
 
 pub fn line_number_style(app: &App) -> LineNumberStyle {
-    let show = app.config.editor.line_numbers.unwrap_or(true);
-    let rel = app.config.editor.relative_line_numbers.unwrap_or(false);
+    let show = app.config.editor.line_numbers;
+    let rel = app.config.editor.relative_line_numbers;
     match (show, rel) {
         (false, _) => LineNumberStyle::None,
         (true, false) => LineNumberStyle::Absolute,

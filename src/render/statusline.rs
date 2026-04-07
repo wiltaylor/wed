@@ -15,8 +15,8 @@ fn mode_label(mode: EditorMode) -> (&'static str, Color) {
         EditorMode::Replace => ("REPLACE", Color::Red),
         EditorMode::Command => ("COMMAND", Color::Yellow),
         EditorMode::Search => ("SEARCH", Color::Yellow),
-        EditorMode::Pending => ("PENDING", Color::DarkGray),
-        EditorMode::Operator => ("OPERATOR", Color::Cyan),
+        EditorMode::Pending(_) => ("PENDING", Color::DarkGray),
+        EditorMode::Operator(_) => ("OPERATOR", Color::Cyan),
     }
 }
 
