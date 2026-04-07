@@ -256,6 +256,7 @@ impl Keybindings {
             ("gi", "lsp.implementation"),
             ("gr", "lsp.references"),
             ("x", "panel.toggle"),
+            ("gc", "panel.commit"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

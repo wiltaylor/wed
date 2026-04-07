@@ -32,6 +32,23 @@ pub trait Pane: Send + Sync {
     /// Hook called by the bottom panel each frame to push the current
     /// buffer's LSP diagnostics into a problems-style pane. Default no-op.
     fn refresh_diagnostics(&mut self, _diags: &[lsp_types::Diagnostic]) {}
+    /// Push a git status snapshot (absolute path → status). Default no-op.
+    fn refresh_git_status(
+        &mut self,
+        _map: &std::collections::HashMap<std::path::PathBuf, crate::git::FileGitStatus>,
+    ) {
+    }
+    /// Push the current list of staged files (paths relative to repo root). Default no-op.
+    fn refresh_staged(&mut self, _staged: &[String]) {}
+    /// If the pane wants to perform a git commit, return the message and clear it.
+    fn take_commit_request(&mut self) -> Option<String> {
+        None
+    }
+    /// Return the filesystem path the pane displays at row `row`, if any.
+    /// Used by mouse handling to resolve a right-click target.
+    fn path_at_row(&self, _row: usize) -> Option<std::path::PathBuf> {
+        None
+    }
     /// How many rows the pane currently displays. Used for mouse hit-testing.
     fn row_count(&self) -> usize {
         0

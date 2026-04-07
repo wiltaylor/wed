@@ -6,8 +6,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use crate::git::FileGitStatus;
 
 /// One row in the file browser.
 #[derive(Debug, Clone)]
@@ -24,6 +26,7 @@ pub struct FileBrowserPane {
     pub expanded: HashSet<PathBuf>,
     pub selected: usize,
     pub last_opened: Option<PathBuf>,
+    pub git_status: HashMap<PathBuf, FileGitStatus>,
 }
 
 impl Default for FileBrowserPane {
@@ -40,6 +43,7 @@ impl FileBrowserPane {
             expanded: HashSet::new(),
             selected: 0,
             last_opened: None,
+            git_status: HashMap::new(),
         };
         me.refresh();
         me
@@ -119,12 +123,25 @@ impl FileBrowserPane {
     pub(crate) fn _root_ref(&self) -> &Path {
         &self.root
     }
+
+    pub fn set_git_status(&mut self, map: HashMap<PathBuf, FileGitStatus>) {
+        self.git_status = map;
+    }
 }
 
 #[async_trait]
 impl Pane for FileBrowserPane {
     fn name(&self) -> &str {
         "file_browser"
+    }
+    fn path_at_row(&self, row: usize) -> Option<PathBuf> {
+        self.visible().get(row).map(|e| e.path.clone())
+    }
+    fn refresh_git_status(
+        &mut self,
+        map: &HashMap<PathBuf, crate::git::FileGitStatus>,
+    ) {
+        self.git_status = map.clone();
     }
     fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         let visible = self.visible();
@@ -152,11 +169,18 @@ impl Pane for FileBrowserPane {
                 };
                 let indent = "  ".repeat(e.depth.saturating_sub(1));
                 let text = format!("{indent}{glyph}{name}");
-                let mut style = Style::default().fg(if e.is_dir {
+                let fg = if e.is_dir {
                     Color::Cyan
                 } else {
-                    Color::Gray
-                });
+                    match self.git_status.get(&e.path) {
+                        Some(FileGitStatus::Untracked) => Color::Green,
+                        Some(FileGitStatus::Modified) => Color::Yellow,
+                        Some(FileGitStatus::Staged) => Color::LightGreen,
+                        Some(FileGitStatus::Conflicted) => Color::Red,
+                        _ => Color::Gray,
+                    }
+                };
+                let mut style = Style::default().fg(fg);
                 if i == self.selected {
                     style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
                 }

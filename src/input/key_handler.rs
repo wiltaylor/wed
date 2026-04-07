@@ -89,6 +89,11 @@ pub struct KeyHandler;
 impl KeyHandler {
     pub fn handle(app: &mut App, key: Key) {
         app.status_message = None;
+        // Context menu overlay swallows all input.
+        if app.context_menu.is_some() {
+            Self::handle_context_menu(app, key);
+            return;
+        }
         // Picker overlay swallows all input.
         if app.picker.is_some() {
             Self::handle_picker(app, key);
@@ -175,6 +180,101 @@ impl KeyHandler {
             }
             return;
         }
+        // Right-click in the file browser → open context menu.
+        if matches!(ev.kind, MouseEventKind::Down(MouseButton::Right)) {
+            let (col, row) = (ev.column, ev.row);
+            let r = app.last_left_sidebar_rect;
+            if r.width > 0
+                && r.height > 0
+                && col >= r.x
+                && col < r.x + r.width
+                && row >= r.y
+                && row < r.y + r.height
+            {
+                let inner_y = r.y + 1;
+                let clicked_row = row.saturating_sub(inner_y) as usize;
+                let path = {
+                    let sb = &app.layout.left_sidebar;
+                    sb.panes
+                        .get(sb.active)
+                        .and_then(|p| p.path_at_row(clicked_row))
+                };
+                if let Some(path) = path {
+                    use crate::panes::context_menu::{ContextMenu, MenuItem};
+                    let is_dir = path.is_dir();
+                    let status = app.git.status_by_path.get(&path).copied();
+                    let mut items = Vec::new();
+                    if !is_dir {
+                        let staged = matches!(
+                            status,
+                            Some(crate::git::FileGitStatus::Staged)
+                        );
+                        if staged {
+                            items.push(MenuItem {
+                                label: "Unstage".into(),
+                                command: "git.unstage".into(),
+                                args: Vec::new(),
+                            });
+                        } else {
+                            items.push(MenuItem {
+                                label: "Stage".into(),
+                                command: "git.stage".into(),
+                                args: Vec::new(),
+                            });
+                        }
+                        items.push(MenuItem {
+                            label: "View History".into(),
+                            command: "git.file_history".into(),
+                            args: Vec::new(),
+                        });
+                    }
+                    if !items.is_empty() {
+                        app.context_menu = Some(ContextMenu::new(items, col, row));
+                        app.context_menu_path = Some(path);
+                    }
+                }
+            }
+            return;
+        }
+
+        // If a context menu is open, a left click either picks an item or closes it.
+        if app.context_menu.is_some()
+            && matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+        {
+            let menu_rect = {
+                let menu = app.context_menu.as_ref().unwrap();
+                menu.rect(ratatui::layout::Rect {
+                    x: 0,
+                    y: 0,
+                    width: u16::MAX / 2,
+                    height: u16::MAX / 2,
+                })
+            };
+            if ev.column >= menu_rect.x
+                && ev.column < menu_rect.x + menu_rect.width
+                && ev.row >= menu_rect.y
+                && ev.row < menu_rect.y + menu_rect.height
+            {
+                // Click on an item row (skip top border).
+                let inner_top = menu_rect.y + 1;
+                if ev.row >= inner_top {
+                    let idx = (ev.row - inner_top) as usize;
+                    let chosen = {
+                        let menu = app.context_menu.as_mut().unwrap();
+                        menu.items.get(idx).cloned()
+                    };
+                    app.context_menu = None;
+                    if let Some(item) = chosen {
+                        Self::run_leader_command(app, &item.command);
+                    }
+                }
+                return;
+            } else {
+                app.context_menu = None;
+                // fall through to normal click handling
+            }
+        }
+
         if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
             return;
         }
@@ -427,6 +527,86 @@ impl KeyHandler {
                     app.panel_focused = false;
                 }
             }
+            "panel.commit" => {
+                let p = &mut app.layout.bottom_panel;
+                let exists = p.panes.iter().any(|pane| pane.name() == "commit");
+                if !exists {
+                    p.panes
+                        .push(Box::new(crate::panes::git_commit::GitCommitPane::default()));
+                }
+                if let Some(idx) = p.panes.iter().position(|pane| pane.name() == "commit") {
+                    p.active = idx;
+                }
+                p.open = true;
+                app.panel_focused = true;
+                app.refresh_git();
+            }
+            "git.stage" => {
+                if let Some(path) = app.context_menu_path.clone() {
+                    if let Err(e) = app.git.stage(&path) {
+                        app.status_message = Some((format!("git stage: {e}"), true));
+                    } else {
+                        app.refresh_git();
+                    }
+                }
+            }
+            "git.unstage" => {
+                if let Some(path) = app.context_menu_path.clone() {
+                    if let Err(e) = app.git.unstage(&path) {
+                        app.status_message = Some((format!("git unstage: {e}"), true));
+                    } else {
+                        app.refresh_git();
+                    }
+                }
+            }
+            "git.commit" => {
+                let pane_idx = app
+                    .layout
+                    .bottom_panel
+                    .panes
+                    .iter_mut()
+                    .position(|p| p.name() == "commit");
+                let msg = pane_idx
+                    .and_then(|i| app.layout.bottom_panel.panes[i].take_commit_request());
+                if let Some(msg) = msg {
+                    match app.git.commit(&msg) {
+                        Ok(oid) => {
+                            app.status_message =
+                                Some((format!("committed {}", &oid.to_string()[..8]), false));
+                            app.refresh_git();
+                        }
+                        Err(e) => {
+                            app.status_message = Some((format!("commit failed: {e}"), true));
+                        }
+                    }
+                } else {
+                    app.status_message =
+                        Some(("nothing to commit (empty message?)".into(), true));
+                }
+            }
+            "git.file_history" => {
+                if let Some(path) = app.context_menu_path.clone() {
+                    match app.git.file_history(&path, 200) {
+                        Ok(commits) => {
+                            let name = format!(
+                                "History: {}",
+                                path.file_name()
+                                    .map(|s| s.to_string_lossy().into_owned())
+                                    .unwrap_or_default()
+                            );
+                            let pane =
+                                crate::panes::git_history::GitHistoryPane::new(path, commits);
+                            app.layout
+                                .tabs
+                                .push(crate::layout::Tab::new_git_history(name, pane));
+                            app.layout.active_tab = app.layout.tabs.len() - 1;
+                        }
+                        Err(e) => {
+                            app.status_message = Some((format!("git history: {e}"), true));
+                        }
+                    }
+                }
+            }
             "panel.next_tab" => {
                 let p = &mut app.layout.bottom_panel;
                 if !p.panes.is_empty() {
@@ -441,6 +621,9 @@ impl KeyHandler {
                 }
                 sb.open = !sb.open;
                 app.sidebar_focused = sb.open;
+                if sb.open {
+                    app.refresh_git();
+                }
             }
             other => {
                 // Fall through to the command registry for anything else.
@@ -465,6 +648,35 @@ impl KeyHandler {
                     app.status_message = Some((format!("{e}"), true));
                 }
             }
+        }
+    }
+
+    fn handle_context_menu(app: &mut App, key: Key) {
+        match key {
+            Key::Esc => {
+                app.context_menu = None;
+                app.context_menu_path = None;
+            }
+            Key::Up | Key::Char('k') => {
+                if let Some(m) = app.context_menu.as_mut() {
+                    m.move_up();
+                }
+            }
+            Key::Down | Key::Char('j') => {
+                if let Some(m) = app.context_menu.as_mut() {
+                    m.move_down();
+                }
+            }
+            Key::Enter => {
+                let chosen = app.context_menu.as_ref().and_then(|m| {
+                    m.items.get(m.selected).cloned()
+                });
+                app.context_menu = None;
+                if let Some(item) = chosen {
+                    Self::run_leader_command(app, &item.command);
+                }
+            }
+            _ => {}
         }
     }
 

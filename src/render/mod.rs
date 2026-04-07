@@ -179,6 +179,31 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     // Editor: layout the active tab's split tree.
     app.last_editor_rect = editor_rect;
     app.last_editor_view_rects.clear();
+    // Special tab kinds (e.g. file history) own the editor area directly.
+    if let Some(tab) = app.layout.active_tab() {
+        if let crate::layout::TabKind::GitHistory(pane) = &tab.kind {
+            pane.render(frame, editor_rect);
+            // Skip the normal editor render path.
+            if let Some(r) = bottom_panel_rect {
+                refresh_bottom_panel(app);
+                bottom_panel_render::render(frame, &app.layout.bottom_panel, r, app.panel_focused);
+                app.last_bottom_panel_rect = r;
+            } else {
+                app.last_bottom_panel_rect = ratatui::layout::Rect::default();
+            }
+            if let Some(r) = status_rect {
+                statusline::render(frame, app, r);
+            }
+            if let Some(r) = cmdline_rect {
+                command_line_ui::render(frame, app, r);
+            }
+            if let Some(menu) = &app.context_menu {
+                let area = menu.rect(size);
+                menu.render(frame, area);
+            }
+            return;
+        }
+    }
     if editor_rect.width > 0 && editor_rect.height > 0 {
         // First pass: compute rects and clamp each view's scroll so the
         // cursor stays inside the visible area.
@@ -238,6 +263,10 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     popup::render(frame, app, editor_rect);
     popup::render_leader_popup(frame, app, editor_rect);
     render_diagnostic_tooltip(frame, app);
+    if let Some(menu) = &app.context_menu {
+        let area = menu.rect(size);
+        menu.render(frame, area);
+    }
 }
 
 /// Sync the bottom panel's problems pane with the current buffer's

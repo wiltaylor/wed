@@ -19,6 +19,22 @@ pub fn register_all(reg: &mut CommandRegistry) {
     register_sidebar_commands(reg);
     register_picker_commands(reg);
     register_editor_commands(reg);
+    register_git_commands(reg);
+}
+
+/// Git commands. Their bodies are stubs at the registry layer; the
+/// real work is dispatched in `KeyHandler::run_leader_command` so it
+/// can mutate `App.git` and the file/commit panes directly.
+pub fn register_git_commands(reg: &mut CommandRegistry) {
+    for name in [
+        "git.stage",
+        "git.unstage",
+        "git.commit",
+        "git.file_history",
+        "panel.commit",
+    ] {
+        reg.register(name, |_ctx, _| Ok(()));
+    }
 }
 
 /// Register editor motion / edit / mode commands.

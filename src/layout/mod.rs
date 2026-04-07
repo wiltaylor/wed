@@ -9,7 +9,7 @@ pub use bottom_panel::BottomPanel;
 pub use pane::Pane;
 pub use sidebar::Sidebar;
 pub use split::{Direction, SplitNode};
-pub use tab::Tab;
+pub use tab::{Tab, TabKind};
 pub use view::View;
 
 #[derive(Debug, Default)]

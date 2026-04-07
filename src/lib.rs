@@ -7,6 +7,7 @@ pub mod commands;
 pub mod config;
 pub mod dap;
 pub mod editor;
+pub mod git;
 pub mod highlight;
 pub mod input;
 pub mod layout;

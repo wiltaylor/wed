@@ -6,6 +6,8 @@ use crate::commands::CommandRegistry;
 use crate::config::Config;
 use crate::dap::DapManager;
 use crate::editor::Buffer;
+use crate::git::GitState;
+use crate::panes::context_menu::ContextMenu;
 use crate::input::EditorMode;
 use crate::layout::LayoutState;
 use crate::lsp::LspManager;
@@ -94,6 +96,11 @@ pub struct App {
     /// Parallel to `app.picker`'s items when that picker was populated by
     /// an LSP goto command — index matches picker's item index.
     pub lsp_goto_results: Vec<lsp_types::Location>,
+    pub git: GitState,
+    pub context_menu: Option<ContextMenu>,
+    /// Path the right-click context menu was opened on (so its commands
+    /// can act on the correct file).
+    pub context_menu_path: Option<std::path::PathBuf>,
 }
 
 /// Kind of LSP navigation request.
@@ -176,6 +183,35 @@ impl App {
             pending_lsp_attach: Vec::new(),
             hover_popup: None,
             lsp_goto_results: Vec::new(),
+            git: GitState::new(
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            ),
+            context_menu: None,
+            context_menu_path: None,
+        }
+    }
+
+    /// Re-read git status from disk and propagate it to any open panes
+    /// that care (file browser, commit pane).
+    pub fn refresh_git(&mut self) {
+        self.git.refresh();
+        let map = &self.git.status_by_path;
+        for pane in self.layout.left_sidebar.panes.iter_mut() {
+            pane.refresh_git_status(map);
+        }
+        for pane in self.layout.right_sidebar.panes.iter_mut() {
+            pane.refresh_git_status(map);
+        }
+        let staged: Vec<String> = self
+            .git
+            .summary
+            .entries
+            .iter()
+            .filter(|e| e.staged)
+            .map(|e| e.path.clone())
+            .collect();
+        for pane in self.layout.bottom_panel.panes.iter_mut() {
+            pane.refresh_staged(&staged);
         }
     }
 
@@ -279,6 +315,10 @@ impl App {
     pub fn dispatch_event(&mut self, ev: AppEvent) {
         match ev {
             AppEvent::Quit => self.should_quit = true,
+            AppEvent::GitStatusUpdated => {
+                self.refresh_git();
+                return;
+            }
             AppEvent::LspHoverContents { contents } => {
                 if let Some(p) = &mut self.hover_popup {
                     p.loading = false;
