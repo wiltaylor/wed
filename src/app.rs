@@ -64,18 +64,21 @@ pub struct App {
     pub pending: crate::input::pending::PendingState,
     pub last_change: crate::commands::context::LastChange,
     pub search: crate::editor::search::SearchState,
+    pub command_line: crate::commands::command_line::CommandLineState,
     pub want_col: usize,
 }
 
 impl App {
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let mut commands = CommandRegistry::new();
+        crate::commands::definitions::register_all(&mut commands);
         Self {
             config: Config::default(),
             mode: EditorMode::Normal,
             buffers: Vec::new(),
             layout: LayoutState::default(),
-            commands: CommandRegistry::new(),
+            commands,
             lsp: LspManager::new(),
             dap: DapManager::new(),
             event_tx,
@@ -84,6 +87,7 @@ impl App {
             pending: crate::input::pending::PendingState::default(),
             last_change: crate::commands::context::LastChange::default(),
             search: crate::editor::search::SearchState::default(),
+            command_line: crate::commands::command_line::CommandLineState::new(),
             want_col: 0,
         }
     }

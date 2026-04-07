@@ -96,11 +96,74 @@ impl KeyHandler {
             EditorMode::Replace => Self::handle_replace(app, key),
             EditorMode::Pending(p) => Self::handle_pending(app, p, key),
             EditorMode::Operator(op) => Self::handle_operator_motion(app, op, key),
-            EditorMode::Command | EditorMode::Search => {
-                if key == Key::Esc {
+            EditorMode::Command | EditorMode::Search => Self::handle_command_line(app, key),
+        }
+    }
+
+    fn handle_command_line(app: &mut App, key: Key) {
+        match key {
+            Key::Esc => {
+                app.command_line.clear();
+                app.mode = EditorMode::Normal;
+            }
+            Key::Backspace => {
+                if app.command_line.input.is_empty() {
                     app.mode = EditorMode::Normal;
+                } else {
+                    app.command_line.backspace();
                 }
             }
+            Key::Left => app.command_line.move_left(),
+            Key::Right => app.command_line.move_right(),
+            Key::Up => app.command_line.history_prev(),
+            Key::Down => app.command_line.history_next(),
+            Key::Tab => {
+                if matches!(app.mode, EditorMode::Command) {
+                    let reg = std::mem::take(&mut app.commands);
+                    app.command_line.complete(&reg);
+                    app.commands = reg;
+                }
+            }
+            Key::Char(c) => app.command_line.insert_char(c),
+            Key::Enter => {
+                let was_search = matches!(app.mode, EditorMode::Search);
+                if was_search {
+                    let pat = std::mem::take(&mut app.command_line.input);
+                    app.command_line.cursor = 0;
+                    if !pat.is_empty() {
+                        app.command_line.history.push(pat.clone());
+                        app.search.set(&pat, true);
+                        let cur = cursor_of(app);
+                        if let Some(b) = buf(app) {
+                            if let Some(c) = search_next(b, &app.search, cur) {
+                                set_cursor(app, c);
+                            }
+                        }
+                    }
+                    app.mode = EditorMode::Normal;
+                } else {
+                    let registry = std::mem::take(&mut app.commands);
+                    let App {
+                        buffers,
+                        layout,
+                        mode,
+                        config,
+                        event_tx,
+                        should_quit,
+                        command_line,
+                        ..
+                    } = app;
+                    let mut ctx = crate::commands::CommandContext::new(
+                        buffers, layout, mode, config, event_tx, should_quit,
+                    );
+                    let _ = command_line.accept(&registry, &mut ctx);
+                    app.commands = registry;
+                    if matches!(app.mode, EditorMode::Command) {
+                        app.mode = EditorMode::Normal;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -340,8 +403,14 @@ impl KeyHandler {
             }
             Key::Char('r') => app.mode = EditorMode::Pending(PendingKey::Replace),
             Key::Char('R') => app.mode = EditorMode::Replace,
-            Key::Char(':') => app.mode = EditorMode::Command,
-            Key::Char('/') => app.mode = EditorMode::Search,
+            Key::Char(':') => {
+                app.command_line.clear();
+                app.mode = EditorMode::Command;
+            }
+            Key::Char('/') => {
+                app.command_line.clear();
+                app.mode = EditorMode::Search;
+            }
             Key::Char('n') => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf(app) {

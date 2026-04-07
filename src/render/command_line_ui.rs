@@ -13,10 +13,9 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
         EditorMode::Search => "/",
         _ => return,
     };
-    // TODO: pull buffer text from app.command_line once Agent owning input wires it.
     let line = Line::from(vec![
         Span::styled(prefix, Style::default().fg(Color::Yellow)),
-        Span::raw(""),
+        Span::raw(app.command_line.input.clone()),
     ]);
     let para = Paragraph::new(line).style(Style::default().bg(Color::Black).fg(Color::White));
     frame.render_widget(para, area);
