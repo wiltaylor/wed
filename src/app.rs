@@ -264,6 +264,15 @@ impl App {
                 }
             }
             AppEvent::Mouse(m) => {
+                use crossterm::event::MouseEventKind;
+                if matches!(
+                    m.kind,
+                    MouseEventKind::Down(_)
+                        | MouseEventKind::ScrollUp
+                        | MouseEventKind::ScrollDown
+                ) {
+                    self.hover_popup = None;
+                }
                 crate::input::key_handler::KeyHandler::mouse(self, m);
             }
             AppEvent::Resize(_, _) => {}
