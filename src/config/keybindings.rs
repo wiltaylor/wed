@@ -290,12 +290,17 @@ pub fn parse_key_sequence(s: &str, leader: Key) -> Result<Vec<Key>, String> {
             rest = stripped;
             continue;
         }
-        if let Some(stripped) = rest.strip_prefix('<') {
-            // <...> token
-            let end = stripped.find('>').ok_or_else(|| format!("unterminated '<' in {s:?}"))?;
-            let tok = &stripped[..end];
-            out.push(parse_named_key(tok)?);
-            rest = &stripped[end + 1..];
+        if rest.starts_with('<') {
+            if let Some(end) = rest[1..].find('>') {
+                let tok = &rest[1..1 + end];
+                if let Ok(k) = parse_named_key(tok) {
+                    out.push(k);
+                    rest = &rest[2 + end..];
+                    continue;
+                }
+            }
+            out.push(Key::Char('<'));
+            rest = &rest[1..];
             continue;
         }
         // Lookahead: a "ctrl-..." or "alt-..." or "shift-..." or "FNN" token
