@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 /// Embedded terminal pane backed by `portable-pty`.
 pub struct TerminalPane {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    _child: Box<dyn portable_pty::Child + Send + Sync>,
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+    _child: Mutex<Box<dyn portable_pty::Child + Send + Sync>>,
     pub buffer: Arc<Mutex<Vec<u8>>>,
     pub size: PtySize,
 }
@@ -57,9 +57,9 @@ impl TerminalPane {
         });
 
         Ok(Self {
-            master: pair.master,
-            writer,
-            _child: child,
+            master: Mutex::new(pair.master),
+            writer: Mutex::new(writer),
+            _child: Mutex::new(child),
             buffer,
             size,
         })
@@ -71,15 +71,16 @@ impl TerminalPane {
             return Ok(());
         }
         let new = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
-        self.master.resize(new)?;
+        self.master.lock().resize(new)?;
         self.size = new;
         Ok(())
     }
 
     /// Write raw bytes to the pty master.
     pub fn write_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        self.writer.write_all(bytes)?;
-        self.writer.flush()
+        let mut w = self.writer.lock();
+        w.write_all(bytes)?;
+        w.flush()
     }
 
     /// Snapshot the read buffer for rendering.

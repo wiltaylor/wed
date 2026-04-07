@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn publish_and_get() {
         let mut s = DiagnosticStore::new();
-        let uri = Uri::parse("file:///x.rs").unwrap();
+        let uri: Uri = "file:///x.rs".parse().unwrap();
         s.publish(PublishDiagnosticsParams {
             uri: uri.clone(),
             diagnostics: vec![diag("oops"), diag("bad")],

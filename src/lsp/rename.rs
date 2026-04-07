@@ -1,18 +1,17 @@
 //! UI state for the rename prompt.
 
-use lsp_types::Position;
-use url::Url;
+use lsp_types::{Position, Uri};
 
 #[derive(Debug, Clone)]
 pub struct RenamePrompt {
-    pub uri: Url,
+    pub uri: Uri,
     pub position: Position,
     pub original: String,
     pub new_name: String,
 }
 
 impl RenamePrompt {
-    pub fn new(uri: Url, position: Position, original: impl Into<String>) -> Self {
+    pub fn new(uri: Uri, position: Position, original: impl Into<String>) -> Self {
         let original = original.into();
         Self {
             new_name: original.clone(),
