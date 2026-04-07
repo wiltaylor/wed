@@ -1,11 +1,16 @@
 use crate::layout::Pane;
 
-#[derive(Default)]
 pub struct Sidebar {
     pub open: bool,
     pub width: u16,
     pub panes: Vec<Box<dyn Pane>>,
     pub active: usize,
+}
+
+impl Default for Sidebar {
+    fn default() -> Self {
+        Self { open: false, width: 30, panes: Vec::new(), active: 0 }
+    }
 }
 
 impl std::fmt::Debug for Sidebar {

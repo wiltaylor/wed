@@ -2,12 +2,13 @@ pub mod buffer;
 pub mod cursor;
 pub mod history;
 pub mod marks;
+pub mod motions;
 pub mod registers;
 pub mod selection;
 
-pub use buffer::Buffer;
+pub use buffer::{Buffer, Point};
 pub use cursor::Cursor;
 pub use history::History;
 pub use marks::Marks;
-pub use registers::Registers;
-pub use selection::Selection;
+pub use registers::{RegisterEntry, Registers, YankKind};
+pub use selection::{Selection, SelectionKind};
