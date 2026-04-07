@@ -175,7 +175,7 @@ pub fn word_end(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
 }
 
 /// `W` — WORD-forward (whitespace-separated).
-pub fn WORD_forward(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
+pub fn word_forward_big(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
     let mut pos = cur;
     for _ in 0..n {
         let seq = iter_forward(buf, pos);
@@ -192,7 +192,7 @@ pub fn WORD_forward(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
     pos
 }
 
-pub fn WORD_backward(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
+pub fn word_backward_big(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
     let mut pos = cur;
     for _ in 0..n {
         let seq = iter_backward(buf, pos);
@@ -207,7 +207,7 @@ pub fn WORD_backward(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
     pos
 }
 
-pub fn WORD_end(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
+pub fn word_end_big(buf: &Buffer, cur: Cursor, n: usize) -> Cursor {
     let mut pos = cur;
     for _ in 0..n {
         let seq = iter_forward(buf, pos);

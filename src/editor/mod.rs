@@ -3,7 +3,10 @@ pub mod cursor;
 pub mod history;
 pub mod marks;
 pub mod motions;
+pub mod ops;
 pub mod registers;
+pub mod search;
+pub mod text_objects;
 pub mod selection;
 
 pub use buffer::{Buffer, Point};

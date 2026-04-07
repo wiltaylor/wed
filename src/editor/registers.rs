@@ -45,7 +45,7 @@ impl Registers {
 
     /// Try to read system clipboard via arboard; falls back to unnamed register.
     pub fn system_clipboard_get(&self) -> Option<RegisterEntry> {
-        #[cfg(feature = "clipboard")]
+        #[cfg(any())]
         {
             if let Ok(mut cb) = arboard::Clipboard::new() {
                 if let Ok(text) = cb.get_text() {
@@ -57,7 +57,7 @@ impl Registers {
     }
 
     pub fn system_clipboard_set(&mut self, entry: RegisterEntry) {
-        #[cfg(feature = "clipboard")]
+        #[cfg(any())]
         {
             if let Ok(mut cb) = arboard::Clipboard::new() {
                 let _ = cb.set_text(entry.text.clone());
