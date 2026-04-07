@@ -99,6 +99,11 @@ impl KeyHandler {
             Self::handle_sidebar(app, key);
             return;
         }
+        // Bottom panel focus likewise swallows input.
+        if app.panel_focused {
+            Self::handle_bottom_panel(app, key);
+            return;
+        }
         // Active leader sequence: route through the leader trie.
         if app.leader_seq.is_some() {
             Self::handle_leader(app, key);
@@ -216,6 +221,41 @@ impl KeyHandler {
                 app.layout.active_tab = i;
                 return;
             }
+        }
+
+        // Bottom panel click: select the clicked row, fire the jump, and
+        // apply it to the active buffer's cursor. Does NOT focus the panel.
+        if in_rect(app.last_bottom_panel_rect) {
+            // Layout inside the panel: 1-cell border + 1-row tab strip,
+            // then the active pane content.
+            let pane_y0 = app.last_bottom_panel_rect.y + 2;
+            if row >= pane_y0 {
+                let clicked_row = (row - pane_y0) as usize;
+                let p = &mut app.layout.bottom_panel;
+                if let Some(pane) = p.panes.get_mut(p.active) {
+                    let len = pane.row_count();
+                    if len > 0 && clicked_row < len {
+                        pane.select_row(clicked_row);
+                        pane.activate_selected();
+                    }
+                }
+                let jump = {
+                    let p = &mut app.layout.bottom_panel;
+                    p.panes
+                        .get_mut(p.active)
+                        .and_then(|pane| pane.take_jump_target())
+                };
+                if let Some((jrow, jcol)) = jump {
+                    if let Some(tab) = app.layout.active_tab_mut() {
+                        let id = tab.active_view;
+                        if let Some(view) = tab.root.find_mut(id) {
+                            view.cursor = (jrow, jcol);
+                            view.scroll.0 = jrow.saturating_sub(5);
+                        }
+                    }
+                }
+            }
+            return;
         }
 
         // Sidebar click: select row, second click on the same row activates.
@@ -376,6 +416,23 @@ impl KeyHandler {
             "lsp.references" => {
                 app.trigger_lsp_goto(crate::app::LspGotoKind::References);
             }
+            "panel.toggle" => {
+                let p = &mut app.layout.bottom_panel;
+                if p.panes.is_empty() {
+                    p.panes
+                        .push(Box::new(crate::panes::lsp_problems::LspProblemsPane::default()));
+                }
+                p.open = !p.open;
+                if !p.open {
+                    app.panel_focused = false;
+                }
+            }
+            "panel.next_tab" => {
+                let p = &mut app.layout.bottom_panel;
+                if !p.panes.is_empty() {
+                    p.active = (p.active + 1) % p.panes.len();
+                }
+            }
             "sidebar.left_toggle" => {
                 let sb = &mut app.layout.left_sidebar;
                 if sb.panes.is_empty() {
@@ -458,6 +515,63 @@ impl KeyHandler {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn handle_bottom_panel(app: &mut App, key: Key) {
+        if key == Key::Esc {
+            app.panel_focused = false;
+            return;
+        }
+        if matches!(key, Key::Char(':') | Key::Char('/') | Key::Char('?')) {
+            app.panel_focused = false;
+            Self::handle_normal(app, key);
+            return;
+        }
+        // Tab cycles between panes.
+        if key == Key::Tab {
+            let p = &mut app.layout.bottom_panel;
+            if !p.panes.is_empty() {
+                p.active = (p.active + 1) % p.panes.len();
+            }
+            return;
+        }
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let code = match key {
+            Key::Char(c) => Some(KeyCode::Char(c)),
+            Key::Enter => Some(KeyCode::Enter),
+            Key::Up => Some(KeyCode::Up),
+            Key::Down => Some(KeyCode::Down),
+            Key::Left => Some(KeyCode::Left),
+            Key::Right => Some(KeyCode::Right),
+            Key::Backspace => Some(KeyCode::Backspace),
+            _ => None,
+        };
+        if let Some(code) = code {
+            let p = &mut app.layout.bottom_panel;
+            if let Some(pane) = p.panes.get_mut(p.active) {
+                pane.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+            }
+        }
+        // Pull jump target if a pane produced one.
+        let jump = {
+            let p = &mut app.layout.bottom_panel;
+            p.panes.get_mut(p.active).and_then(|pane| pane.take_jump_target())
+        };
+        if let Some((row, col)) = jump {
+            if let Some(tab) = app.layout.active_tab_mut() {
+                let id = tab.active_view;
+                if let Some(view) = tab.root.find_mut(id) {
+                    view.cursor = (row, col);
+                    view.scroll.0 = row.saturating_sub(5);
+                }
+            }
+            // Only Enter releases focus back to the editor — j/k previews
+            // the cursor live but keeps panel focus so the user can keep
+            // browsing problems.
+            if key == Key::Enter {
+                app.panel_focused = false;
+            }
         }
     }
 

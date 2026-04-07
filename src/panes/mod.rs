@@ -4,6 +4,7 @@ pub mod dap_variables;
 pub mod diagnostics;
 pub mod file_browser;
 pub mod git;
+pub mod lsp_problems;
 pub mod lsp_symbols;
 pub mod picker;
 pub mod search_results;

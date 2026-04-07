@@ -1,9 +1,11 @@
+pub mod bottom_panel;
 pub mod pane;
 pub mod sidebar;
 pub mod split;
 pub mod tab;
 pub mod view;
 
+pub use bottom_panel::BottomPanel;
 pub use pane::Pane;
 pub use sidebar::Sidebar;
 pub use split::{Direction, SplitNode};
@@ -16,6 +18,7 @@ pub struct LayoutState {
     pub active_tab: usize,
     pub left_sidebar: Sidebar,
     pub right_sidebar: Sidebar,
+    pub bottom_panel: BottomPanel,
 }
 
 impl LayoutState {

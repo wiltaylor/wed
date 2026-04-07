@@ -1,3 +1,4 @@
+pub mod bottom_panel_render;
 pub mod command_line_ui;
 pub mod editor_view;
 pub mod highlight_render;
@@ -85,6 +86,22 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
             height: 1,
         };
         h = h.saturating_sub(1);
+        Some(r)
+    } else {
+        None
+    };
+
+    // Bottom panel: carve rows from the bottom of the remaining middle band
+    // BEFORE sidebars carve columns, so the sidebars stop above the panel.
+    let bottom_panel_rect = if app.layout.bottom_panel.open && h > 0 {
+        let panel_h = app.layout.bottom_panel.height.min(h.saturating_sub(1)).max(3);
+        let r = Rect {
+            x: size.x,
+            y: y + h - panel_h,
+            width: size.width,
+            height: panel_h,
+        };
+        h = h.saturating_sub(panel_h);
         Some(r)
     } else {
         None
@@ -199,6 +216,16 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     }
     app.last_left_sidebar_rect = left_rect.unwrap_or_default();
 
+    // Bottom panel — refresh its problems pane from the active buffer's
+    // diagnostics, then render.
+    if let Some(r) = bottom_panel_rect {
+        refresh_bottom_panel(app);
+        bottom_panel_render::render(frame, &app.layout.bottom_panel, r, app.panel_focused);
+        app.last_bottom_panel_rect = r;
+    } else {
+        app.last_bottom_panel_rect = ratatui::layout::Rect::default();
+    }
+
     // Statusline (overlaid by command line when in command/search mode).
     if let Some(r) = status_rect {
         statusline::render(frame, app, r);
@@ -211,6 +238,26 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     popup::render(frame, app, editor_rect);
     popup::render_leader_popup(frame, app, editor_rect);
     render_diagnostic_tooltip(frame, app);
+}
+
+/// Sync the bottom panel's problems pane with the current buffer's
+/// LSP diagnostics. Called every frame the panel is open.
+fn refresh_bottom_panel(app: &mut App) {
+    use crate::panes::lsp_problems::LspProblemsPane;
+    // Snapshot diagnostics first to release the lock before we mutate panes.
+    let diags_snapshot: Option<Vec<lsp_types::Diagnostic>> = (|| {
+        let tab = app.layout.active_tab()?;
+        let view = tab.root.find(tab.active_view)?;
+        let buf = app.buffers.get(view.buffer_id.0 as usize)?;
+        let uri = buf.lsp_uri.as_ref()?;
+        Some(app.lsp.diagnostics.lock().get(uri).to_vec())
+    })();
+    let _ = LspProblemsPane::default; // keep type referenced for clarity
+    if let Some(diags) = diags_snapshot {
+        for pane in app.layout.bottom_panel.panes.iter_mut() {
+            pane.refresh_diagnostics(&diags);
+        }
+    }
 }
 
 /// Minimal CommonMark-ish renderer geared at LSP hover responses

@@ -24,6 +24,14 @@ pub trait Pane: Send + Sync {
     fn take_opened_path(&mut self) -> Option<std::path::PathBuf> {
         None
     }
+    /// If the pane has produced a `(row, col)` jump target it wants the
+    /// host to apply to the active buffer's cursor, return and clear it.
+    fn take_jump_target(&mut self) -> Option<(usize, usize)> {
+        None
+    }
+    /// Hook called by the bottom panel each frame to push the current
+    /// buffer's LSP diagnostics into a problems-style pane. Default no-op.
+    fn refresh_diagnostics(&mut self, _diags: &[lsp_types::Diagnostic]) {}
     /// How many rows the pane currently displays. Used for mouse hit-testing.
     fn row_count(&self) -> usize {
         0
