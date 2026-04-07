@@ -18,6 +18,14 @@ use crate::lsp::protocol::{read_message, write_message};
 
 type PendingMap = Arc<Mutex<HashMap<i32, oneshot::Sender<Value>>>>;
 
+/// A pending `textDocument/didChange` queued for debounced delivery.
+#[derive(Debug, Clone)]
+pub struct DidChangeRequest {
+    pub uri: lsp_types::Uri,
+    pub version: i32,
+    pub text: String,
+}
+
 /// A spawned LSP server. Cheap to clone via `Arc`.
 pub struct LspClient {
     pub id: ServerId,
@@ -28,6 +36,9 @@ pub struct LspClient {
     /// Notifications received from the server (method, params).
     pub notifications: Mutex<Option<mpsc::UnboundedReceiver<(String, Value)>>>,
     notif_tx: mpsc::UnboundedSender<(String, Value)>,
+    /// Channel feeding the debounced `didChange` task. Only the most
+    /// recent entry wins: rapid keystrokes collapse to a single notification.
+    did_change_tx: Mutex<Option<mpsc::UnboundedSender<DidChangeRequest>>>,
     _child: Mutex<Option<Child>>,
 }
 
@@ -93,7 +104,61 @@ impl LspClient {
             writer: AsyncMutex::new(writer),
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
+            did_change_tx: Mutex::new(None),
             _child: Mutex::new(None),
+        }
+    }
+
+    /// Queue a `textDocument/didChange`. Multiple calls within ~80ms are
+    /// coalesced into a single notification carrying the latest state.
+    pub fn queue_did_change(self: &Arc<Self>, req: DidChangeRequest) {
+        // Lazily spawn the debounce task + channel on first use.
+        let need_spawn = self.did_change_tx.lock().is_none();
+        if need_spawn {
+            let (tx, mut rx) = mpsc::unbounded_channel::<DidChangeRequest>();
+            *self.did_change_tx.lock() = Some(tx);
+            let client = Arc::clone(self);
+            tokio::spawn(async move {
+                use std::time::Duration;
+                while let Some(first) = rx.recv().await {
+                    let mut latest = first;
+                    // Drain any further changes that arrive within 300ms of
+                    // the last one so rapid typing becomes a single send.
+                    // rust-analyzer cancels its in-flight diagnostic
+                    // computation on each `didChange`, so sending less often
+                    // dramatically improves how quickly errors show up.
+                    loop {
+                        match tokio::time::timeout(Duration::from_millis(300), rx.recv()).await
+                        {
+                            Ok(Some(m)) => latest = m,
+                            _ => break,
+                        }
+                    }
+                    use lsp_types::{
+                        DidChangeTextDocumentParams, TextDocumentContentChangeEvent,
+                        VersionedTextDocumentIdentifier,
+                    };
+                    let params = DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: latest.uri,
+                            version: latest.version,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: latest.text,
+                        }],
+                    };
+                    let v = latest.version;
+                    tracing::info!("lsp debounce send didChange v={v}");
+                    if let Err(e) = client.notify("textDocument/didChange", params).await {
+                        tracing::warn!("lsp did_change send failed: {e:#}");
+                    }
+                }
+            });
+        }
+        if let Some(tx) = self.did_change_tx.lock().as_ref() {
+            let _ = tx.send(req);
         }
     }
 

@@ -48,6 +48,16 @@ impl KeyTrie {
             .insert(&keys[1..], cmd);
     }
 
+    /// Walk the trie by the given key sequence and return the node at
+    /// the end, or None if the path doesn't exist.
+    pub fn get_node(&self, keys: &[Key]) -> Option<&KeyTrie> {
+        let mut node = self;
+        for k in keys {
+            node = node.children.get(k)?;
+        }
+        Some(node)
+    }
+
     pub fn get(&self, keys: &[Key]) -> Resolution {
         if keys.is_empty() {
             return if self.command.is_some() {
@@ -148,6 +158,14 @@ impl Keybindings {
         Ok(())
     }
 
+    /// Return the normal-mode trie subtree under `[leader_key, ...keys]`.
+    pub fn leader_trie_at(&self, keys: &[Key]) -> Option<&KeyTrie> {
+        let trie = self.per_mode.get(&ModeKey::Normal)?;
+        let mut path = vec![self.leader_key];
+        path.extend_from_slice(keys);
+        trie.get_node(&path)
+    }
+
     pub fn resolve(&self, mode: EditorMode, keys: &[Key]) -> Resolution {
         let mk = ModeKey::from_mode(mode);
         match self.per_mode.get(&mk) {
@@ -233,6 +251,7 @@ impl Keybindings {
             ("w", "buffer.save"),
             ("q", "app.quit"),
             ("e", "sidebar.left_toggle"),
+            ("k", "lsp.hover"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

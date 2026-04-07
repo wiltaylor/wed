@@ -107,6 +107,7 @@ impl KeyHandler {
         // Leader key in normal mode opens a fresh leader sequence.
         if matches!(app.mode, EditorMode::Normal) && key == app.keybindings.leader_key {
             app.leader_seq = Some(Vec::new());
+            app.leader_popup_visible = false;
             return;
         }
         let mode = app.mode;
@@ -319,6 +320,7 @@ impl KeyHandler {
         use crate::config::keybindings::Resolution;
         if key == Key::Esc {
             app.leader_seq = None;
+            app.leader_popup_visible = false;
             return;
         }
         let mut seq = app.leader_seq.take().unwrap_or_default();
@@ -330,9 +332,11 @@ impl KeyHandler {
                 app.leader_seq = Some(seq);
             }
             Resolution::Match(cmd) => {
+                app.leader_popup_visible = false;
                 Self::run_leader_command(app, &cmd.command);
             }
             Resolution::NoMatch => {
+                app.leader_popup_visible = false;
                 app.status_message =
                     Some((format!("no leader binding for {:?}", seq), true));
             }
@@ -347,6 +351,22 @@ impl KeyHandler {
                 app.picker = Some(crate::panes::picker::picker_files(&root));
                 app.picker_query.clear();
             }
+            "buffer.list" => {
+                let paths: Vec<std::path::PathBuf> = app
+                    .buffers
+                    .iter()
+                    .map(|b| {
+                        b.path
+                            .clone()
+                            .unwrap_or_else(|| std::path::PathBuf::from("[scratch]"))
+                    })
+                    .collect();
+                app.picker = Some(crate::panes::picker::Picker::new(paths));
+                app.picker_query.clear();
+            }
+            "lsp.hover" => {
+                app.trigger_hover_popup();
+            }
             "sidebar.left_toggle" => {
                 let sb = &mut app.layout.left_sidebar;
                 if sb.panes.is_empty() {
@@ -357,8 +377,27 @@ impl KeyHandler {
                 app.sidebar_focused = sb.open;
             }
             other => {
-                app.status_message =
-                    Some((format!("leader command not wired: {other}"), true));
+                // Fall through to the command registry for anything else.
+                let registry = std::mem::take(&mut app.commands);
+                let result = {
+                    let App {
+                        buffers,
+                        layout,
+                        mode,
+                        config,
+                        event_tx,
+                        should_quit,
+                        ..
+                    } = app;
+                    let mut ctx = crate::commands::CommandContext::new(
+                        buffers, layout, mode, config, event_tx, should_quit,
+                    );
+                    registry.invoke(other, &mut ctx, &[])
+                };
+                app.commands = registry;
+                if let Err(e) = result {
+                    app.status_message = Some((format!("{e}"), true));
+                }
             }
         }
     }

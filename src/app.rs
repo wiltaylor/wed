@@ -30,6 +30,7 @@ pub enum AppEvent {
     Resize(u16, u16),
     Paste(String),
     LspDiagnostics { server: ServerId, uri: String },
+    LspHoverContents { contents: Option<lsp_types::Hover> },
     LspCompletion { request: RequestId },
     LspHover { request: RequestId },
     LspDefinition { request: RequestId },
@@ -82,6 +83,22 @@ pub struct App {
     pub highlight: crate::highlight::HighlightEngine,
     /// Buffer indices waiting for an LSP `start_server` + `did_open`.
     pub pending_lsp_attach: Vec<usize>,
+    /// Active LSP info popup (diagnostics + hover) shown on `<leader>k`.
+    pub hover_popup: Option<HoverPopup>,
+}
+
+/// State for the on-demand info popup triggered by `lsp.hover`.
+#[derive(Debug, Clone, Default)]
+pub struct HoverPopup {
+    /// Cursor row when the popup was opened (used to anchor + auto-dismiss).
+    pub anchor_row: usize,
+    pub anchor_col: usize,
+    /// Diagnostics overlapping the cursor at trigger time.
+    pub diagnostics: Vec<lsp_types::Diagnostic>,
+    /// `Some(text)` once the hover response arrives; `None` while waiting.
+    pub hover_text: Option<String>,
+    /// True until the hover response (or absence) is received.
+    pub loading: bool,
 }
 
 impl App {
@@ -120,6 +137,7 @@ impl App {
             want_col: 0,
             highlight: crate::highlight::HighlightEngine::new(),
             pending_lsp_attach: Vec::new(),
+            hover_popup: None,
         }
     }
 
@@ -223,10 +241,27 @@ impl App {
     pub fn dispatch_event(&mut self, ev: AppEvent) {
         match ev {
             AppEvent::Quit => self.should_quit = true,
+            AppEvent::LspHoverContents { contents } => {
+                if let Some(p) = &mut self.hover_popup {
+                    p.loading = false;
+                    p.hover_text = contents.and_then(hover_to_text);
+                }
+                return;
+            }
             AppEvent::Key(k) => {
+                // Any key dismisses the hover popup; the `lsp.hover` command
+                // (triggered via leader) repopulates it after KeyHandler runs.
+                self.hover_popup = None;
                 let key = crate::input::keys::Key::from_event(k);
                 crate::input::key_handler::KeyHandler::handle(self, key);
-                self.flush_lsp_did_change();
+                // Only push edits to the LSP once we're out of insert mode —
+                // this lets the user finish a line without rust-analyzer
+                // cancelling its in-flight diagnostic computation on every
+                // keystroke. Normal-mode edits (x, dd, p, undo…) still flush
+                // immediately since this branch runs after KeyHandler.
+                if !matches!(self.mode, crate::input::EditorMode::Insert) {
+                    self.flush_lsp_did_change();
+                }
             }
             AppEvent::Mouse(m) => {
                 crate::input::key_handler::KeyHandler::mouse(self, m);
@@ -238,6 +273,89 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Open the on-demand info popup at the cursor: collects diagnostics
+    /// overlapping the cursor (snapped to words, matching the underline)
+    /// and fires an async `textDocument/hover` request whose result lands
+    /// back via `AppEvent::LspHoverContents`.
+    pub fn trigger_hover_popup(&mut self) {
+        let Some(tab) = self.layout.active_tab() else {
+            return;
+        };
+        let Some(view) = tab.root.find(tab.active_view) else {
+            return;
+        };
+        let cursor_row = view.cursor.0;
+        let cursor_col = view.cursor.1;
+        let buffer_idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get(buffer_idx) else {
+            return;
+        };
+        let Some(uri) = buf.lsp_uri.clone() else {
+            self.status_message = Some(("no LSP attached".into(), false));
+            return;
+        };
+        let lang_id = match &buf.language_id {
+            Some(l) => l.clone(),
+            None => return,
+        };
+
+        // Snapshot diagnostics whose (word-snapped) range covers the cursor.
+        let store = self.lsp.diagnostics.lock();
+        let diags_all = store.get(&uri).to_vec();
+        drop(store);
+        let diagnostics: Vec<lsp_types::Diagnostic> = diags_all
+            .into_iter()
+            .filter(|d| diagnostic_covers_cursor(buf, d, cursor_row, cursor_col))
+            .collect();
+
+        self.hover_popup = Some(HoverPopup {
+            anchor_row: cursor_row,
+            anchor_col: cursor_col,
+            diagnostics,
+            hover_text: None,
+            loading: true,
+        });
+
+        // Fire hover request in the background.
+        let Some(client) = self.lsp.client_for_language(&lang_id) else {
+            // No live client; mark popup as not-loading so it shows just diags.
+            if let Some(p) = &mut self.hover_popup {
+                p.loading = false;
+            }
+            return;
+        };
+        let event_tx = self.event_tx.clone();
+        let position = lsp_types::Position {
+            line: cursor_row as u32,
+            character: cursor_col as u32,
+        };
+        tokio::spawn(async move {
+            use lsp_types::request::Request as LspRequest;
+            use lsp_types::{HoverParams, TextDocumentIdentifier, TextDocumentPositionParams};
+            let params = HoverParams {
+                text_document_position_params: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position,
+                },
+                work_done_progress_params: Default::default(),
+            };
+            let res: Result<Option<lsp_types::Hover>, _> = client
+                .request(
+                    <lsp_types::request::HoverRequest as LspRequest>::METHOD,
+                    params,
+                )
+                .await;
+            let contents = match res {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("lsp hover request failed: {e:#}");
+                    None
+                }
+            };
+            let _ = event_tx.send(AppEvent::LspHoverContents { contents });
+        });
     }
 
     /// If the active buffer has pending edits and an attached LSP URI,
@@ -268,23 +386,16 @@ impl App {
         };
         let version = buf.version;
         let text = buf.rope.to_string();
+        let text_len = text.len();
         buf.lsp_dirty = false;
-        tokio::spawn(async move {
-            use lsp_types::{
-                DidChangeTextDocumentParams, TextDocumentContentChangeEvent,
-                VersionedTextDocumentIdentifier,
-            };
-            let params = DidChangeTextDocumentParams {
-                text_document: VersionedTextDocumentIdentifier { uri, version },
-                content_changes: vec![TextDocumentContentChangeEvent {
-                    range: None,
-                    range_length: None,
-                    text,
-                }],
-            };
-            if let Err(e) = client.notify("textDocument/didChange", params).await {
-                tracing::warn!("lsp did_change failed: {e:#}");
-            }
+        tracing::info!("lsp queue_did_change v={version} bytes={text_len}");
+        // Push through the client's debouncer — rapid keystrokes coalesce
+        // into a single `didChange` so rust-analyzer isn't constantly
+        // cancelling in-flight diagnostic computations.
+        client.queue_did_change(crate::lsp::client::DidChangeRequest {
+            uri,
+            version,
+            text,
         });
     }
 
@@ -440,6 +551,88 @@ fn resolve_workspace_root(file: &std::path::Path, patterns: &[String]) -> std::p
         }
     }
     start.to_path_buf()
+}
+
+/// Mirrors the underline rendering's word-snapping so the popup hit area
+/// matches what the user actually sees underlined.
+pub(crate) fn diagnostic_covers_cursor(
+    buf: &crate::editor::Buffer,
+    d: &lsp_types::Diagnostic,
+    cursor_row: usize,
+    cursor_col: usize,
+) -> bool {
+    let s_line = d.range.start.line as usize;
+    let e_line = d.range.end.line as usize;
+    let s_col = d.range.start.character as usize;
+    let e_col = d.range.end.character as usize;
+
+    if cursor_row < s_line || cursor_row > e_line {
+        return false;
+    }
+    if cursor_row > s_line && cursor_row < e_line {
+        return true;
+    }
+
+    let line_chars: Vec<char> = buf.rope.line(s_line).chars().collect();
+    let line_len = line_chars.iter().take_while(|c| **c != '\n').count();
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+
+    let (snap_s, snap_e) = if e_col <= s_col || s_col >= line_len {
+        if line_len == 0 {
+            (0usize, 0usize)
+        } else {
+            let probe = s_col.min(line_len.saturating_sub(1));
+            let mut ws = probe;
+            while ws > 0 && !is_word(line_chars[ws]) {
+                ws -= 1;
+            }
+            if is_word(line_chars[ws]) {
+                while ws > 0 && is_word(line_chars[ws - 1]) {
+                    ws -= 1;
+                }
+                let mut we = ws;
+                while we < line_len && is_word(line_chars[we]) {
+                    we += 1;
+                }
+                (ws, we)
+            } else {
+                (probe, probe + 1)
+            }
+        }
+    } else {
+        (s_col, e_col.min(line_len))
+    };
+
+    if cursor_row == s_line && cursor_row == e_line {
+        cursor_col >= snap_s && cursor_col < snap_e.max(snap_s + 1)
+    } else if cursor_row == s_line {
+        cursor_col >= snap_s
+    } else {
+        cursor_col < e_col.max(1)
+    }
+}
+
+/// Flatten an LSP `Hover` response into a single plain-text string.
+pub(crate) fn hover_to_text(hover: lsp_types::Hover) -> Option<String> {
+    use lsp_types::{HoverContents, MarkedString};
+    let s = match hover.contents {
+        HoverContents::Scalar(MarkedString::String(s)) => s,
+        HoverContents::Scalar(MarkedString::LanguageString(ls)) => ls.value,
+        HoverContents::Array(items) => items
+            .into_iter()
+            .map(|m| match m {
+                MarkedString::String(s) => s,
+                MarkedString::LanguageString(ls) => ls.value,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        HoverContents::Markup(m) => m.value,
+    };
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 /// Convert a filesystem path into an `lsp_types::Uri` (`file://…`).

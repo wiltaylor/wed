@@ -184,12 +184,27 @@ impl LspManager {
         let root_uri = url::Url::from_file_path(&root)
             .ok()
             .and_then(|u| Uri::from_str(u.as_str()).ok());
+        // Encourage rust-analyzer to publish parser/HIR diagnostics
+        // promptly on every `didChange` instead of only after `cargo check`
+        // (which by default runs on save).
+        let init_options = if language_id == "rust" {
+            Some(json!({
+                "diagnostics": {
+                    "experimental": { "enable": true },
+                    "refreshSupport": true,
+                },
+                "checkOnSave": false,
+            }))
+        } else {
+            None
+        };
+
         #[allow(deprecated)]
         let init = InitializeParams {
             process_id: Some(std::process::id()),
             root_path: None,
             root_uri: root_uri.clone(),
-            initialization_options: None,
+            initialization_options: init_options,
             capabilities: capabilities::client_capabilities(),
             trace: None,
             workspace_folders: root_uri.as_ref().map(|u| {
