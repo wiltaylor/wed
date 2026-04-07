@@ -583,8 +583,10 @@ impl KeyHandler {
             }
             Key::Ctrl('d') => Self::motion(app, |b, c| motions::down(b, c, 10)),
             Key::Ctrl('u') => Self::motion(app, |b, c| motions::up(b, c, 10)),
-            Key::Ctrl('f') => Self::motion(app, |b, c| motions::down(b, c, 20)),
-            Key::Ctrl('b') => Self::motion(app, |b, c| motions::up(b, c, 20)),
+            Key::Ctrl('f') | Key::PageDown => {
+                Self::motion(app, |b, c| motions::down(b, c, 20))
+            }
+            Key::Ctrl('b') | Key::PageUp => Self::motion(app, |b, c| motions::up(b, c, 20)),
 
             // Operators
             Key::Char('d') => {
@@ -808,6 +810,8 @@ impl KeyHandler {
     fn handle_insert(app: &mut App, key: Key) {
         match key {
             Key::Esc => Self::exit_insert(app),
+            Key::PageDown => Self::motion(app, |b, c| motions::down(b, c, 20)),
+            Key::PageUp => Self::motion(app, |b, c| motions::up(b, c, 20)),
             Key::Char(c) => Self::insert_str(app, &c.to_string()),
             Key::Enter => Self::insert_str(app, "\n"),
             Key::Tab => {
