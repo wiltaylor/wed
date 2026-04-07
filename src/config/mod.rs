@@ -55,6 +55,27 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Default location for the user's global config:
+    /// `$XDG_CONFIG_HOME/wed/config.toml` (or `~/.config/wed/config.toml`).
+    pub fn default_path() -> Option<std::path::PathBuf> {
+        dirs::config_dir().map(|p| p.join("wed").join("config.toml"))
+    }
+
+    /// Try to load the user's global config from `default_path`.
+    /// Returns `Config::default()` if the file does not exist.
+    /// Parse errors are propagated.
+    pub fn load_default() -> anyhow::Result<Self> {
+        let Some(path) = Self::default_path() else {
+            return Ok(Self::default());
+        };
+        if !path.exists() {
+            tracing::info!("no user config at {}", path.display());
+            return Ok(Self::default());
+        }
+        tracing::info!("loading config from {}", path.display());
+        Self::load(path)
+    }
+
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
         Ok(toml::from_str(text)?)

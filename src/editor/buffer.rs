@@ -52,6 +52,11 @@ pub struct Buffer {
     pub diagnostics: Vec<lsp_types::Diagnostic>,
     pub version: i32,
     pub pending_edits: Vec<BufferEdit>,
+    /// LSP document URI once a server has opened this buffer.
+    pub lsp_uri: Option<lsp_types::Uri>,
+    /// Set by `insert`/`delete`/`apply_raw` — drained by the app loop to
+    /// send a `textDocument/didChange` to the language server.
+    pub lsp_dirty: bool,
 }
 
 impl Buffer {
@@ -66,10 +71,16 @@ impl Buffer {
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let lang = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_string());
+        // Canonical language id via the grammar registry (e.g. "rs" -> "rust").
+        // Falls back to the raw file extension if the registry has no entry.
+        let lang = crate::highlight::grammar_registry::GrammarRegistry::global()
+            .for_path(&path)
+            .map(|e| e.id.to_string())
+            .or_else(|| {
+                path.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_string())
+            });
         Ok(Self {
             rope: Rope::from_str(&text),
             path: Some(path),
@@ -157,6 +168,7 @@ impl Buffer {
         let new_end_byte = byte_pos + text.len();
         let (new_end_row, new_end_col) = byte_point(&self.rope, new_end_byte);
         self.dirty = true;
+        self.lsp_dirty = true;
         self.version += 1;
         self.pending_edits.push(BufferEdit {
             start_byte: byte_pos,
@@ -190,6 +202,7 @@ impl Buffer {
         let removed: String = self.rope.slice(start_c..end_c).to_string();
         self.rope.remove(start_c..end_c);
         self.dirty = true;
+        self.lsp_dirty = true;
         self.version += 1;
         self.pending_edits.push(BufferEdit {
             start_byte: range.start,
@@ -229,6 +242,7 @@ impl Buffer {
         let new_end_byte = start + inserted.len();
         let (new_end_row, new_end_col) = byte_point(&self.rope, new_end_byte);
         self.dirty = true;
+        self.lsp_dirty = true;
         self.version += 1;
         self.pending_edits.push(BufferEdit {
             start_byte: start,

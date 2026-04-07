@@ -13,7 +13,7 @@ pub mod signature_help;
 pub use client::LspClient;
 pub use diagnostics::DiagnosticStore;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -41,10 +41,19 @@ use crate::app::{AppEvent, RequestId, ServerId};
 /// Identifies a server by (workspace root, language id).
 pub type ServerKey = (PathBuf, String);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerStatus {
+    None,
+    Starting,
+    Ready,
+}
+
 pub struct LspManager {
     pub clients: HashMap<ServerKey, Arc<LspClient>>,
     pub diagnostics: Arc<Mutex<DiagnosticStore>>,
     pub event_tx: Option<mpsc::UnboundedSender<AppEvent>>,
+    /// Language ids whose `initialize` handshake is currently in flight.
+    pub starting: HashSet<String>,
     next_server_id: u64,
     next_request_id: u64,
 }
@@ -55,6 +64,7 @@ impl Default for LspManager {
             clients: HashMap::new(),
             diagnostics: Arc::new(Mutex::new(DiagnosticStore::new())),
             event_tx: None,
+            starting: HashSet::new(),
             next_server_id: 1,
             next_request_id: 1,
         }
@@ -70,6 +80,17 @@ impl LspManager {
         Self {
             event_tx: Some(event_tx),
             ..Self::default()
+        }
+    }
+
+    /// Status of an LSP server for a given language id.
+    pub fn server_status(&self, language_id: &str) -> ServerStatus {
+        if self.client_for_language(language_id).is_some() {
+            ServerStatus::Ready
+        } else if self.starting.contains(language_id) {
+            ServerStatus::Starting
+        } else {
+            ServerStatus::None
         }
     }
 
@@ -127,6 +148,23 @@ impl LspManager {
                             serde_json::from_value::<PublishDiagnosticsParams>(params.clone())
                         {
                             let uri_str = p.uri.to_string();
+                            tracing::info!(
+                                "lsp[{}] publishDiagnostics {}: {} items",
+                                server_id.0,
+                                uri_str,
+                                p.diagnostics.len()
+                            );
+                            for d in &p.diagnostics {
+                                tracing::info!(
+                                    "  diag [{}:{}..{}:{}] sev={:?} msg={}",
+                                    d.range.start.line,
+                                    d.range.start.character,
+                                    d.range.end.line,
+                                    d.range.end.character,
+                                    d.severity,
+                                    d.message.lines().next().unwrap_or("")
+                                );
+                            }
                             diags.lock().publish(p);
                             if let Some(tx) = &event_tx {
                                 let _ = tx.send(AppEvent::LspDiagnostics {
@@ -170,8 +208,11 @@ impl LspManager {
             locale: None,
             ..Default::default()
         };
+        tracing::info!("lsp[{}]: sending initialize", server_id.0);
         let _: InitializeResult = client.request("initialize", init).await?;
+        tracing::info!("lsp[{}]: initialize ok, sending initialized", server_id.0);
         client.notify("initialized", InitializedParams {}).await?;
+        tracing::info!("lsp[{}]: initialized sent", server_id.0);
 
         self.clients.insert(key, client.clone());
         Ok(client)
@@ -179,6 +220,14 @@ impl LspManager {
 
     fn any_client(&self) -> Option<&Arc<LspClient>> {
         self.clients.values().next()
+    }
+
+    /// Return the first running client whose language id matches.
+    pub fn client_for_language(&self, language_id: &str) -> Option<Arc<LspClient>> {
+        self.clients
+            .iter()
+            .find(|((_, lang), _)| lang == language_id)
+            .map(|(_, c)| c.clone())
     }
 
     // ---- Text document sync notifications ----

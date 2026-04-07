@@ -68,6 +68,7 @@ pub struct App {
     pub status_message: Option<(String, bool)>,
     pub keybindings: crate::config::keybindings::Keybindings,
     pub leader_seq: Option<Vec<crate::input::keys::Key>>,
+    pub leader_popup_visible: bool,
     pub picker: Option<crate::panes::picker::Picker<std::path::PathBuf>>,
     pub picker_query: String,
     pub sidebar_focused: bool,
@@ -79,6 +80,8 @@ pub struct App {
     pub last_sidebar_click_row: Option<usize>,
     pub want_col: usize,
     pub highlight: crate::highlight::HighlightEngine,
+    /// Buffer indices waiting for an LSP `start_server` + `did_open`.
+    pub pending_lsp_attach: Vec<usize>,
 }
 
 impl App {
@@ -92,7 +95,7 @@ impl App {
             buffers: Vec::new(),
             layout: LayoutState::default(),
             commands,
-            lsp: LspManager::new(),
+            lsp: LspManager::with_event_tx(event_tx.clone()),
             dap: DapManager::new(),
             event_tx,
             event_rx,
@@ -104,6 +107,7 @@ impl App {
             status_message: None,
             keybindings: crate::config::keybindings::Keybindings::defaults(),
             leader_seq: None,
+            leader_popup_visible: false,
             picker: None,
             picker_query: String::new(),
             sidebar_focused: false,
@@ -115,6 +119,65 @@ impl App {
             last_sidebar_click_row: None,
             want_col: 0,
             highlight: crate::highlight::HighlightEngine::new(),
+            pending_lsp_attach: Vec::new(),
+        }
+    }
+
+    /// Drain `pending_lsp_attach` and start servers + send `did_open`.
+    /// Called from the async run loop after each event dispatch.
+    async fn drain_pending_lsp_attach(&mut self) {
+        let pending = std::mem::take(&mut self.pending_lsp_attach);
+        tracing::info!(
+            "drain_pending_lsp_attach: {} pending, lsp config keys: {:?}",
+            pending.len(),
+            self.config.lsp.keys().collect::<Vec<_>>()
+        );
+        for idx in pending {
+            let Some(buf) = self.buffers.get(idx) else {
+                continue;
+            };
+            let Some(lang_id) = buf.language_id.clone() else {
+                tracing::info!("buffer {idx} has no language_id");
+                continue;
+            };
+            tracing::info!("buffer {idx} language_id={lang_id}");
+            let Some(cfg) = self.config.lsp.get(&lang_id).cloned() else {
+                tracing::info!("no lsp config for language {lang_id}");
+                continue;
+            };
+            tracing::info!("starting lsp server for {lang_id}: {}", cfg.command);
+            self.lsp.starting.insert(lang_id.clone());
+            let Some(path) = buf.path.clone() else {
+                continue;
+            };
+            let abs_path = std::fs::canonicalize(&path).unwrap_or(path);
+            let root = resolve_workspace_root(&abs_path, &cfg.root_patterns);
+            let start_result = self
+                .lsp
+                .start_server(lang_id.clone(), &cfg.command, &cfg.args, root)
+                .await;
+            self.lsp.starting.remove(&lang_id);
+            if let Err(e) = start_result {
+                tracing::warn!("lsp start_server({lang_id}) failed: {e:#}");
+                self.status_message = Some((format!("lsp {lang_id}: {e}"), true));
+                continue;
+            }
+            let Some(uri) = path_to_uri(&abs_path) else {
+                continue;
+            };
+            let text;
+            let version;
+            {
+                let buf = &mut self.buffers[idx];
+                buf.lsp_uri = Some(uri.clone());
+                buf.version = 1;
+                buf.lsp_dirty = false;
+                version = buf.version;
+                text = buf.rope.to_string();
+            }
+            if let Err(e) = self.lsp.did_open(uri, lang_id, version, text).await {
+                tracing::warn!("lsp did_open failed: {e:#}");
+            }
         }
     }
 
@@ -138,6 +201,10 @@ impl App {
         let mut buf = crate::editor::Buffer::from_path(path)?;
         let new_idx = self.buffers.len();
         buf.id = BufferId(new_idx as u64);
+        // Defer LSP start/did_open to the async run loop.
+        if buf.language_id.is_some() {
+            self.pending_lsp_attach.push(new_idx);
+        }
         self.buffers.push(buf);
         let vid = ViewId(new_idx as u64 + 1);
         let mut view = crate::layout::View::new(vid, BufferId(new_idx as u64));
@@ -159,6 +226,7 @@ impl App {
             AppEvent::Key(k) => {
                 let key = crate::input::keys::Key::from_event(k);
                 crate::input::key_handler::KeyHandler::handle(self, key);
+                self.flush_lsp_did_change();
             }
             AppEvent::Mouse(m) => {
                 crate::input::key_handler::KeyHandler::mouse(self, m);
@@ -166,9 +234,58 @@ impl App {
             AppEvent::Resize(_, _) => {}
             AppEvent::Paste(s) => {
                 crate::input::key_handler::KeyHandler::paste(self, &s);
+                self.flush_lsp_did_change();
             }
             _ => {}
         }
+    }
+
+    /// If the active buffer has pending edits and an attached LSP URI,
+    /// send a full-document `textDocument/didChange` in the background.
+    fn flush_lsp_did_change(&mut self) {
+        let Some(tab) = self.layout.active_tab() else {
+            return;
+        };
+        let Some(view) = tab.root.find(tab.active_view) else {
+            return;
+        };
+        let idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get_mut(idx) else {
+            return;
+        };
+        if !buf.lsp_dirty {
+            return;
+        }
+        let Some(uri) = buf.lsp_uri.clone() else {
+            buf.lsp_dirty = false;
+            return;
+        };
+        let Some(lang_id) = buf.language_id.clone() else {
+            return;
+        };
+        let Some(client) = self.lsp.client_for_language(&lang_id) else {
+            return;
+        };
+        let version = buf.version;
+        let text = buf.rope.to_string();
+        buf.lsp_dirty = false;
+        tokio::spawn(async move {
+            use lsp_types::{
+                DidChangeTextDocumentParams, TextDocumentContentChangeEvent,
+                VersionedTextDocumentIdentifier,
+            };
+            let params = DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier { uri, version },
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text,
+                }],
+            };
+            if let Err(e) = client.notify("textDocument/didChange", params).await {
+                tracing::warn!("lsp did_change failed: {e:#}");
+            }
+        });
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -233,22 +350,57 @@ impl App {
             let _ = execute!(std::io::stdout(), style);
         }
 
-        // Initial draw.
+        // Pre-mark languages as starting so the first draw shows "[LSP …]"
+        // while the (blocking) initialize handshake runs.
+        for &idx in &self.pending_lsp_attach {
+            if let Some(buf) = self.buffers.get(idx) {
+                if let Some(lid) = &buf.language_id {
+                    if self.config.lsp.contains_key(lid) {
+                        self.lsp.starting.insert(lid.clone());
+                    }
+                }
+            }
+        }
+
+        // Initial draw — do this BEFORE attaching LSPs so the user sees
+        // the file immediately, even if `initialize` takes a moment.
         apply_cursor_style(self.mode);
         {
             let app_ref: &mut App = self;
             terminal.draw(|f| crate::render::render(f, app_ref))?;
         }
 
+        // Attach LSPs for any files opened before the run loop started.
+        self.drain_pending_lsp_attach().await;
+        {
+            let app_ref: &mut App = self;
+            terminal.draw(|f| crate::render::render(f, app_ref))?;
+        }
+
         while !self.should_quit {
-            // Block on the first event, then drain any others non-blockingly.
-            let first = match self.event_rx.recv().await {
-                Some(ev) => ev,
-                None => break,
+            // Block on the first event, with a 200ms debounce race when a
+            // leader sequence is pending but the which-key popup isn't yet
+            // shown — the sleep branch flips the popup visible on timeout.
+            let debounce_active = self.leader_seq.is_some() && !self.leader_popup_visible;
+            let first_opt = if debounce_active {
+                tokio::select! {
+                    ev = self.event_rx.recv() => Some(ev),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => None,
+                }
+            } else {
+                Some(self.event_rx.recv().await)
             };
-            self.dispatch_event(first);
+            match first_opt {
+                Some(Some(ev)) => self.dispatch_event(ev),
+                Some(None) => break,
+                None => self.leader_popup_visible = true,
+            }
             while let Ok(ev) = self.event_rx.try_recv() {
                 self.dispatch_event(ev);
+            }
+
+            if !self.pending_lsp_attach.is_empty() {
+                self.drain_pending_lsp_attach().await;
             }
 
             if !self.should_quit {
@@ -267,4 +419,32 @@ impl Default for App {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Walk up from `file` looking for any ancestor containing one of
+/// `patterns`. Falls back to the file's parent directory, and finally
+/// the current working directory.
+fn resolve_workspace_root(file: &std::path::Path, patterns: &[String]) -> std::path::PathBuf {
+    let default_patterns: &[&str] = &["Cargo.toml", ".git"];
+    let owned: Vec<&str> = if patterns.is_empty() {
+        default_patterns.to_vec()
+    } else {
+        patterns.iter().map(|s| s.as_str()).collect()
+    };
+    let start = file.parent().unwrap_or(std::path::Path::new("."));
+    for ancestor in start.ancestors() {
+        for p in &owned {
+            if ancestor.join(p).exists() {
+                return ancestor.to_path_buf();
+            }
+        }
+    }
+    start.to_path_buf()
+}
+
+/// Convert a filesystem path into an `lsp_types::Uri` (`file://…`).
+pub(crate) fn path_to_uri(path: &std::path::Path) -> Option<lsp_types::Uri> {
+    use std::str::FromStr;
+    let url = url::Url::from_file_path(path).ok()?;
+    lsp_types::Uri::from_str(url.as_str()).ok()
 }

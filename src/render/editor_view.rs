@@ -62,6 +62,59 @@ pub fn render(
 
     let buf = app.buffers.get(buffer_idx);
     let total_lines = buf.map(|b| b.rope.len_lines()).unwrap_or(0);
+
+    // Compute diagnostic byte ranges for the active buffer's URI.
+    let diag_spans: Vec<crate::render::highlight_render::DiagSpan> = if let Some(b) = buf {
+        if let Some(uri) = &b.lsp_uri {
+            use lsp_types::DiagnosticSeverity;
+            use ratatui::style::Color;
+            let store = app.lsp.diagnostics.lock();
+            let diags = store.get(uri);
+            let rope = &b.rope;
+            // LSP positions use UTF-16 code units for `character`. Convert
+            // (line, utf16_col) → absolute byte offset by walking the line's
+            // chars and summing utf16 units until we reach the target.
+            let resolve = |line: usize, utf16_col: u32| -> Option<usize> {
+                if line >= rope.len_lines() {
+                    return None;
+                }
+                let line_byte = rope.line_to_byte(line);
+                let line_slice = rope.line(line);
+                let mut u16_seen: u32 = 0;
+                let mut byte_off: usize = 0;
+                for ch in line_slice.chars() {
+                    if u16_seen >= utf16_col {
+                        break;
+                    }
+                    u16_seen += ch.len_utf16() as u32;
+                    byte_off += ch.len_utf8();
+                }
+                Some(line_byte + byte_off)
+            };
+            diags
+                .iter()
+                .filter_map(|d| {
+                    let start_byte = resolve(d.range.start.line as usize, d.range.start.character)?;
+                    let end_byte = resolve(d.range.end.line as usize, d.range.end.character)?;
+                    let color = match d.severity {
+                        Some(DiagnosticSeverity::ERROR) => Color::Red,
+                        Some(DiagnosticSeverity::WARNING) => Color::Yellow,
+                        Some(DiagnosticSeverity::INFORMATION) => Color::Cyan,
+                        _ => Color::Gray,
+                    };
+                    Some(crate::render::highlight_render::DiagSpan {
+                        start_byte,
+                        end_byte,
+                        color,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
     let ln_style = line_number_style(app);
     let gw = gutter_width(ln_style, total_lines.max(1));
 
@@ -121,6 +174,7 @@ pub fn render(
             scroll_col,
             text_w,
             &highlight_spans,
+            &diag_spans,
         );
         spans.append(&mut text_spans);
         lines.push(Line::from(spans));

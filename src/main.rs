@@ -25,6 +25,19 @@ async fn main() -> Result<()> {
     }
 
     let mut app = App::new();
+    match wed::config::Config::load_default() {
+        Ok(cfg) => {
+            app.config = cfg;
+            match app.config.build_keybindings() {
+                Ok(kb) => app.keybindings = kb,
+                Err(e) => tracing::warn!("keybinding build failed: {e}"),
+            }
+        }
+        Err(e) => {
+            eprintln!("wed: config error: {e:#}");
+            tracing::warn!("config load failed: {e:#}");
+        }
+    }
     for arg in std::env::args().skip(1) {
         if let Err(e) = app.open_file_in_new_tab(std::path::Path::new(&arg)) {
             eprintln!("wed: failed to open {arg}: {e:#}");

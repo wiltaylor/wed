@@ -23,13 +23,15 @@ fn mode_label(mode: EditorMode) -> (&'static str, Color) {
 pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let (mode_text, mode_color) = mode_label(app.mode);
 
-    let (file_name, dirty, lang, row, col, percent) = {
+    let (file_name, dirty, lang, row, col, percent, diag_counts, lsp_status) = {
         let mut file_name = String::from("[no name]");
         let mut dirty = false;
         let mut lang = String::new();
         let mut row = 0usize;
         let mut col = 0usize;
         let mut percent = 0u16;
+        let mut diag_counts: Option<(usize, usize)> = None;
+        let mut lsp_status = crate::lsp::ServerStatus::None;
         if let Some(tab) = app.layout.active_tab() {
             if let Some(view) = tab.root.find(tab.active_view) {
                 row = view.cursor.0;
@@ -45,10 +47,29 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     lang = buf.language_id.clone().unwrap_or_default();
                     let total = buf.rope.len_lines().max(1);
                     percent = ((row + 1) * 100 / total).min(100) as u16;
+                    if let Some(lid) = &buf.language_id {
+                        lsp_status = app.lsp.server_status(lid);
+                    }
+                    if let Some(uri) = &buf.lsp_uri {
+                        let store = app.lsp.diagnostics.lock();
+                        let diags = store.get(uri);
+                        let mut e = 0usize;
+                        let mut w = 0usize;
+                        for d in diags {
+                            match d.severity {
+                                Some(lsp_types::DiagnosticSeverity::ERROR) => e += 1,
+                                Some(lsp_types::DiagnosticSeverity::WARNING) => w += 1,
+                                _ => {}
+                            }
+                        }
+                        diag_counts = Some((e, w));
+                    }
                 }
             }
         }
-        (file_name, dirty, lang, row, col, percent)
+        (
+            file_name, dirty, lang, row, col, percent, diag_counts, lsp_status,
+        )
     };
 
     let dirty_marker = if dirty { " [+]" } else { "" };
@@ -64,7 +85,15 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Span::styled(file_name, Style::default().fg(Color::White)),
         Span::styled(dirty_marker, Style::default().fg(Color::Yellow)),
     ];
-    let right_text = format!(" {lang}  {}:{}  {}% ", row + 1, col + 1, percent);
+    let lsp_text = match lsp_status {
+        crate::lsp::ServerStatus::None => String::new(),
+        crate::lsp::ServerStatus::Starting => " [LSP …] ".to_string(),
+        crate::lsp::ServerStatus::Ready => match diag_counts {
+            Some((e, w)) => format!(" [LSP ✓ E:{e} W:{w}] "),
+            None => " [LSP ✓] ".to_string(),
+        },
+    };
+    let right_text = format!("{lsp_text} {lang}  {}:{}  {}% ", row + 1, col + 1, percent);
 
     let total_w = area.width as usize;
     let left_w: usize = left.iter().map(|s| s.content.chars().count()).sum();

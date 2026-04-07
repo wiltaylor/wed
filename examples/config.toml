@@ -1,0 +1,6 @@
+leader = "<space>"
+
+[lsp.rust]
+command = "rust-analyzer"
+filetypes = ["rust"]
+root_patterns = ["Cargo.toml", ".git"]

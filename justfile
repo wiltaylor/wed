@@ -9,7 +9,7 @@ release:
     cargo build --release
 
 run *args:
-    cargo run -- {{args}}
+    cargo run -- {{ if args == "" { "src/main.rs" } else { args } }}
 
 test:
     cargo test --workspace

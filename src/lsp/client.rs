@@ -50,6 +50,17 @@ impl LspClient {
             .with_context(|| format!("failed to spawn lsp server {command}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+        // Drain stderr so the child doesn't block on a full pipe buffer.
+        if let Some(stderr) = child.stderr.take() {
+            let name_for_log = format!("lsp[{}]", id.0);
+            tokio::spawn(async move {
+                use tokio::io::{AsyncBufReadExt, BufReader as TBufReader};
+                let mut lines = TBufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::info!("{name_for_log} stderr: {line}");
+                }
+            });
+        }
         let writer: Box<dyn AsyncWrite + Send + Unpin> = Box::new(stdin);
         let client = Self::with_io(id, name, writer, event_tx);
         let pending = client.pending.clone();
