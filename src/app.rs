@@ -61,6 +61,10 @@ pub struct App {
     pub event_tx: mpsc::UnboundedSender<AppEvent>,
     pub event_rx: mpsc::UnboundedReceiver<AppEvent>,
     pub should_quit: bool,
+    pub pending: crate::input::pending::PendingState,
+    pub last_change: crate::commands::context::LastChange,
+    pub search: crate::editor::search::SearchState,
+    pub want_col: usize,
 }
 
 impl App {
@@ -77,6 +81,10 @@ impl App {
             event_tx,
             event_rx,
             should_quit: false,
+            pending: crate::input::pending::PendingState::default(),
+            last_change: crate::commands::context::LastChange::default(),
+            search: crate::editor::search::SearchState::default(),
+            want_col: 0,
         }
     }
 
