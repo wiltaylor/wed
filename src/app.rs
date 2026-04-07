@@ -81,20 +81,87 @@ impl App {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        // Minimal: register a Ctrl+C handler that triggers Quit, then drain events.
-        let tx = self.event_tx.clone();
+        use crossterm::event::{
+            DisableMouseCapture, EnableMouseCapture, Event as CtEvent, EventStream,
+        };
+        use crossterm::execute;
+        use crossterm::terminal::{
+            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+        };
+        use futures::StreamExt;
+        use ratatui::Terminal;
+        use ratatui::backend::CrosstermBackend;
+
+        // Ctrl+C → Quit
+        let tx_sig = self.event_tx.clone();
         tokio::spawn(async move {
             let _ = tokio::signal::ctrl_c().await;
-            let _ = tx.send(AppEvent::Quit);
+            let _ = tx_sig.send(AppEvent::Quit);
         });
 
-        while !self.should_quit {
-            match self.event_rx.recv().await {
-                Some(AppEvent::Quit) => self.should_quit = true,
-                Some(_) => {}
-                None => break,
+        // Spawn crossterm event reader.
+        let tx_ev = self.event_tx.clone();
+        let input_task = tokio::spawn(async move {
+            let mut stream = EventStream::new();
+            while let Some(Ok(ev)) = stream.next().await {
+                let app_ev = match ev {
+                    CtEvent::Key(k) => AppEvent::Key(k),
+                    CtEvent::Mouse(m) => AppEvent::Mouse(m),
+                    CtEvent::Resize(w, h) => AppEvent::Resize(w, h),
+                    CtEvent::Paste(s) => AppEvent::Paste(s),
+                    _ => continue,
+                };
+                if tx_ev.send(app_ev).is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Terminal setup. Use a guard so panics still restore the terminal.
+        struct TermGuard;
+        impl Drop for TermGuard {
+            fn drop(&mut self) {
+                let _ = disable_raw_mode();
+                let _ = execute!(std::io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
             }
         }
+        enable_raw_mode().ok();
+        execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture).ok();
+        let _guard = TermGuard;
+
+        let backend = CrosstermBackend::new(std::io::stdout());
+        let mut terminal = Terminal::new(backend)?;
+
+        // Initial draw.
+        terminal.draw(|f| crate::render::render(f, self))?;
+
+        while !self.should_quit {
+            let mut dirty = false;
+            // Block on the first event, then drain any others non-blockingly.
+            let first = self.event_rx.recv().await;
+            match first {
+                Some(AppEvent::Quit) => {
+                    self.should_quit = true;
+                    dirty = true;
+                }
+                Some(_ev) => {
+                    dirty = true;
+                }
+                None => break,
+            }
+            while let Ok(ev) = self.event_rx.try_recv() {
+                if matches!(ev, AppEvent::Quit) {
+                    self.should_quit = true;
+                }
+                dirty = true;
+            }
+
+            if dirty && !self.should_quit {
+                terminal.draw(|f| crate::render::render(f, self))?;
+            }
+        }
+
+        input_task.abort();
         Ok(())
     }
 }
