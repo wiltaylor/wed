@@ -104,7 +104,7 @@ impl TerminalPane {
             KeyCode::Char(c) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     let lc = c.to_ascii_lowercase();
-                    if ('a'..='z').contains(&lc) {
+                    if lc.is_ascii_lowercase() {
                         out.push((lc as u8) - b'a' + 1);
                     } else {
                         out.push(c as u8);

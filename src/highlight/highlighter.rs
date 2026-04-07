@@ -111,9 +111,9 @@ impl HighlightEngine {
             None
         }?;
 
-        if !self.highlighters.contains_key(&buffer.id) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.highlighters.entry(buffer.id) {
             let h = Highlighter::new(entry).ok()?;
-            self.highlighters.insert(buffer.id, h);
+            e.insert(h);
         }
         if !self.queries.contains_key(entry.id) {
             let q = Query::new(&entry.language, entry.highlights_query).ok()?;

@@ -86,15 +86,11 @@ impl Default for SearchConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct TerminalConfig {
     pub shell: Option<String>,
 }
 
-impl Default for TerminalConfig {
-    fn default() -> Self {
-        Self { shell: None }
-    }
-}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LspConfig {

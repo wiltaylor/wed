@@ -3,17 +3,14 @@
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum YankKind {
+    #[default]
     Char,
     Line,
     Block,
 }
 
-impl Default for YankKind {
-    fn default() -> Self {
-        YankKind::Char
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct RegisterEntry {

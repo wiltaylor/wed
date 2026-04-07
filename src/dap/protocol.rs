@@ -53,14 +53,11 @@ pub async fn read_message<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<DapM
     let mut header = Vec::with_capacity(64);
     loop {
         let mut b = [0u8; 1];
-        match r.read(&mut b).await? {
-            0 => {
-                if header.is_empty() {
-                    return Ok(None);
-                }
-                bail!("unexpected eof in dap header");
+        if r.read(&mut b).await? == 0 {
+            if header.is_empty() {
+                return Ok(None);
             }
-            _ => {}
+            bail!("unexpected eof in dap header");
         }
         header.push(b[0]);
         if header.ends_with(b"\r\n\r\n") {

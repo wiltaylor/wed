@@ -1,5 +1,6 @@
 //! Pending input state for multi-key vim sequences.
 
+use crate::editor::Cursor;
 use crate::input::mode::Operator;
 
 /// Tracks an in-progress operator/motion command (count + operator).
@@ -13,6 +14,8 @@ pub struct PendingState {
     pub buf: String,
     /// Last find-char (for `;` / `,`).
     pub last_find: Option<(char, bool, bool)>,
+    /// Visual mode selection anchor.
+    pub visual_anchor: Option<Cursor>,
 }
 
 impl PendingState {

@@ -34,7 +34,9 @@ pub enum PendingKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum EditorMode {
+    #[default]
     Normal,
     Insert,
     Visual(VisualKind),
@@ -45,8 +47,3 @@ pub enum EditorMode {
     Operator(Operator),
 }
 
-impl Default for EditorMode {
-    fn default() -> Self {
-        EditorMode::Normal
-    }
-}

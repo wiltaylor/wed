@@ -14,11 +14,17 @@ use tokio::sync::mpsc::UnboundedSender;
 
 /// Records information about the most recent buffer-mutating change so
 /// that `.` (dot-repeat) can replay it.
+/// Records information about the most recent buffer-mutating change so
+/// that `.` (dot-repeat) can replay it.
 #[derive(Debug, Clone, Default)]
 pub struct LastChange {
     pub kind: String,
     pub count: usize,
     pub inserted: String,
+    /// For operator+motion replays, the operator letter (`d`/`c`/`y`) and
+    /// the motion key sequence following it.
+    pub operator: Option<char>,
+    pub motion: Vec<char>,
 }
 
 pub struct CommandContext<'a> {

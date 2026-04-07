@@ -105,14 +105,14 @@ impl KeyHandler {
             Key::Char('B') => Self::motion(app, |b, c| motions::word_backward_big(b, c, count)),
             Key::Char('e') => Self::motion(app, |b, c| motions::word_end(b, c, count)),
             Key::Char('E') => Self::motion(app, |b, c| motions::word_end_big(b, c, count)),
-            Key::Char('0') => Self::motion(app, |b, c| motions::line_start(b, c)),
-            Key::Char('^') => Self::motion(app, |b, c| motions::line_first_non_blank(b, c)),
-            Key::Char('$') => Self::motion(app, |b, c| motions::line_end(b, c)),
+            Key::Char('0') => Self::motion(app, motions::line_start),
+            Key::Char('^') => Self::motion(app, motions::line_first_non_blank),
+            Key::Char('$') => Self::motion(app, motions::line_end),
             Key::Char('G') => {
                 if let Some(n) = app.pending.count.take() {
                     Self::motion(app, |b, _| motions::goto_line(b, Cursor::default(), n));
                 } else {
-                    Self::motion(app, |b, c| motions::buffer_bottom(b, c));
+                    Self::motion(app, motions::buffer_bottom);
                 }
             }
             Key::Char('g') => app.mode = EditorMode::Pending(PendingKey::G),
@@ -140,7 +140,7 @@ impl KeyHandler {
                     till: true,
                 })
             }
-            Key::Char('%') => Self::motion(app, |b, c| motions::match_bracket(b, c)),
+            Key::Char('%') => Self::motion(app, motions::match_bracket),
             Key::Char('(') => Self::motion(app, |b, c| motions::sentence_backward(b, c, count)),
             Key::Char(')') => Self::motion(app, |b, c| motions::sentence_forward(b, c, count)),
             Key::Char('{') => Self::motion(app, |b, c| motions::paragraph_backward(b, c, count)),
@@ -252,7 +252,7 @@ impl KeyHandler {
             // Mode transitions
             Key::Char('i') => Self::enter_insert(app),
             Key::Char('I') => {
-                Self::motion(app, |b, c| motions::line_first_non_blank(b, c));
+                Self::motion(app, motions::line_first_non_blank);
                 Self::enter_insert(app);
             }
             Key::Char('a') => {
@@ -291,9 +291,30 @@ impl KeyHandler {
                 }
                 Self::enter_insert(app);
             }
-            Key::Char('v') => app.mode = EditorMode::Visual(VisualKind::Char),
-            Key::Char('V') => app.mode = EditorMode::Visual(VisualKind::Line),
-            Key::Ctrl('v') => app.mode = EditorMode::Visual(VisualKind::Block),
+            Key::Char('v') => {
+                app.pending.visual_anchor = Some(cursor_of(app));
+                app.mode = EditorMode::Visual(VisualKind::Char);
+            }
+            Key::Char('V') => {
+                app.pending.visual_anchor = Some(cursor_of(app));
+                app.mode = EditorMode::Visual(VisualKind::Line);
+            }
+            Key::Ctrl('v') => {
+                app.pending.visual_anchor = Some(cursor_of(app));
+                app.mode = EditorMode::Visual(VisualKind::Block);
+            }
+            Key::Char('m') => app.mode = EditorMode::Pending(PendingKey::SetMark),
+            Key::Char('\'') => app.mode = EditorMode::Pending(PendingKey::JumpMark),
+            Key::Char(';') => {
+                if let Some((ch, fwd, till)) = app.pending.last_find {
+                    Self::motion(app, |b, c| motions::find_char(b, c, ch, fwd, till, count));
+                }
+            }
+            Key::Char(',') => {
+                if let Some((ch, fwd, till)) = app.pending.last_find {
+                    Self::motion(app, |b, c| motions::find_char(b, c, ch, !fwd, till, count));
+                }
+            }
             Key::Char('R') => app.mode = EditorMode::Replace,
             Key::Char(':') => app.mode = EditorMode::Command,
             Key::Char('/') => app.mode = EditorMode::Search,

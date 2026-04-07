@@ -88,6 +88,22 @@ impl App {
         }
     }
 
+    /// Dispatch a single AppEvent into editor state.
+    pub fn dispatch_event(&mut self, ev: AppEvent) {
+        match ev {
+            AppEvent::Quit => self.should_quit = true,
+            AppEvent::Key(k) => {
+                let key = crate::input::keys::Key::from_event(k);
+                crate::input::key_handler::KeyHandler::handle(self, key);
+            }
+            AppEvent::Resize(_, _) => {}
+            AppEvent::Paste(s) => {
+                crate::input::key_handler::KeyHandler::paste(self, &s);
+            }
+            _ => {}
+        }
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         use crossterm::event::{
             DisableMouseCapture, EnableMouseCapture, Event as CtEvent, EventStream,
@@ -144,27 +160,17 @@ impl App {
         terminal.draw(|f| crate::render::render(f, self))?;
 
         while !self.should_quit {
-            let mut dirty = false;
             // Block on the first event, then drain any others non-blockingly.
-            let first = self.event_rx.recv().await;
-            match first {
-                Some(AppEvent::Quit) => {
-                    self.should_quit = true;
-                    dirty = true;
-                }
-                Some(_ev) => {
-                    dirty = true;
-                }
+            let first = match self.event_rx.recv().await {
+                Some(ev) => ev,
                 None => break,
-            }
+            };
+            self.dispatch_event(first);
             while let Ok(ev) = self.event_rx.try_recv() {
-                if matches!(ev, AppEvent::Quit) {
-                    self.should_quit = true;
-                }
-                dirty = true;
+                self.dispatch_event(ev);
             }
 
-            if dirty && !self.should_quit {
+            if !self.should_quit {
                 terminal.draw(|f| crate::render::render(f, self))?;
             }
         }

@@ -2,7 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Key {
     Char(char),
     Ctrl(char),
@@ -22,14 +22,10 @@ pub enum Key {
     Delete,
     Insert,
     F(u8),
+    #[default]
     Null,
 }
 
-impl Default for Key {
-    fn default() -> Self {
-        Key::Null
-    }
-}
 
 impl Key {
     pub fn from_event(ev: KeyEvent) -> Self {

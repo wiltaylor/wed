@@ -73,7 +73,7 @@ impl History {
     }
 
     pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty() || self.open.as_ref().map_or(false, |b| !b.ops.is_empty())
+        !self.undo.is_empty() || self.open.as_ref().is_some_and(|b| !b.ops.is_empty())
     }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
