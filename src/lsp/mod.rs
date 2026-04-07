@@ -27,10 +27,10 @@ use lsp_types::{
     InitializeResult, InitializedParams, InlayHint, InlayHintParams, Location, Position,
     PublishDiagnosticsParams, Range, ReferenceContext, ReferenceParams, RenameParams,
     SemanticTokensParams, SemanticTokensResult, SignatureHelp, SignatureHelpParams, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit,
+    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit, Uri,
     VersionedTextDocumentIdentifier, WorkspaceEdit, WorkspaceFolder,
 };
-use url::Url;
+use std::str::FromStr;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
@@ -142,7 +142,9 @@ impl LspManager {
             });
         }
 
-        let root_uri = Url::from_file_path(&root).ok();
+        let root_uri = url::Url::from_file_path(&root)
+            .ok()
+            .and_then(|u| Uri::from_str(u.as_str()).ok());
         #[allow(deprecated)]
         let init = InitializeParams {
             process_id: Some(std::process::id()),
@@ -182,7 +184,7 @@ impl LspManager {
 
     pub async fn did_open(
         &self,
-        uri: Url,
+        uri: Uri,
         language_id: String,
         version: i32,
         text: String,
@@ -203,7 +205,7 @@ impl LspManager {
 
     pub async fn did_change(
         &self,
-        uri: Url,
+        uri: Uri,
         version: i32,
         changes: Vec<TextDocumentContentChangeEvent>,
     ) -> Result<()> {
@@ -217,7 +219,7 @@ impl LspManager {
         client.notify("textDocument/didChange", params).await
     }
 
-    pub async fn did_save(&self, uri: Url, text: Option<String>) -> Result<()> {
+    pub async fn did_save(&self, uri: Uri, text: Option<String>) -> Result<()> {
         let Some(client) = self.any_client() else {
             return Ok(());
         };
@@ -228,7 +230,7 @@ impl LspManager {
         client.notify("textDocument/didSave", params).await
     }
 
-    pub async fn did_close(&self, uri: Url) -> Result<()> {
+    pub async fn did_close(&self, uri: Uri) -> Result<()> {
         let Some(client) = self.any_client() else {
             return Ok(());
         };
@@ -240,14 +242,14 @@ impl LspManager {
 
     // ---- Requests ----
 
-    fn text_doc_pos(uri: Url, pos: Position) -> TextDocumentPositionParams {
+    fn text_doc_pos(uri: Uri, pos: Position) -> TextDocumentPositionParams {
         TextDocumentPositionParams {
             text_document: TextDocumentIdentifier { uri },
             position: pos,
         }
     }
 
-    pub async fn completion(&mut self, uri: Url, pos: Position) -> Result<Option<CompletionResponse>> {
+    pub async fn completion(&mut self, uri: Uri, pos: Position) -> Result<Option<CompletionResponse>> {
         let req_id = self.alloc_request_id();
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
@@ -265,7 +267,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn hover(&mut self, uri: Url, pos: Position) -> Result<Option<Hover>> {
+    pub async fn hover(&mut self, uri: Uri, pos: Position) -> Result<Option<Hover>> {
         let req_id = self.alloc_request_id();
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
@@ -283,7 +285,7 @@ impl LspManager {
 
     pub async fn signature_help(
         &mut self,
-        uri: Url,
+        uri: Uri,
         pos: Position,
     ) -> Result<Option<SignatureHelp>> {
         let req_id = self.alloc_request_id();
@@ -307,7 +309,7 @@ impl LspManager {
 
     pub async fn definition(
         &mut self,
-        uri: Url,
+        uri: Uri,
         pos: Position,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let req_id = self.alloc_request_id();
@@ -329,7 +331,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn references(&mut self, uri: Url, pos: Position) -> Result<Option<Vec<Location>>> {
+    pub async fn references(&mut self, uri: Uri, pos: Position) -> Result<Option<Vec<Location>>> {
         let req_id = self.alloc_request_id();
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
@@ -351,7 +353,7 @@ impl LspManager {
 
     pub async fn code_action(
         &mut self,
-        uri: Url,
+        uri: Uri,
         range: Range,
     ) -> Result<Option<CodeActionResponse>> {
         let req_id = self.alloc_request_id();
@@ -381,7 +383,7 @@ impl LspManager {
 
     pub async fn rename(
         &mut self,
-        uri: Url,
+        uri: Uri,
         pos: Position,
         new_name: String,
     ) -> Result<Option<WorkspaceEdit>> {
@@ -401,7 +403,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn format(&self, uri: Url, tab_size: u32, insert_spaces: bool) -> Result<Option<Vec<TextEdit>>> {
+    pub async fn format(&self, uri: Uri, tab_size: u32, insert_spaces: bool) -> Result<Option<Vec<TextEdit>>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
         };
@@ -423,7 +425,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn document_symbol(&self, uri: Url) -> Result<Option<DocumentSymbolResponse>> {
+    pub async fn document_symbol(&self, uri: Uri) -> Result<Option<DocumentSymbolResponse>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
         };
@@ -441,7 +443,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn inlay_hint(&self, uri: Url, range: Range) -> Result<Option<Vec<InlayHint>>> {
+    pub async fn inlay_hint(&self, uri: Uri, range: Range) -> Result<Option<Vec<InlayHint>>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
         };
@@ -461,7 +463,7 @@ impl LspManager {
 
     pub async fn semantic_tokens_full(
         &self,
-        uri: Url,
+        uri: Uri,
     ) -> Result<Option<SemanticTokensResult>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);

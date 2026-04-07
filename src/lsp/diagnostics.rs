@@ -2,12 +2,11 @@
 
 use std::collections::HashMap;
 
-use lsp_types::{Diagnostic, PublishDiagnosticsParams};
-use url::Url;
+use lsp_types::{Diagnostic, PublishDiagnosticsParams, Uri};
 
 #[derive(Default, Debug)]
 pub struct DiagnosticStore {
-    pub per_uri: HashMap<Url, Vec<Diagnostic>>,
+    pub per_uri: HashMap<Uri, Vec<Diagnostic>>,
 }
 
 impl DiagnosticStore {
@@ -19,14 +18,14 @@ impl DiagnosticStore {
         self.per_uri.insert(params.uri, params.diagnostics);
     }
 
-    pub fn get(&self, uri: &Url) -> &[Diagnostic] {
+    pub fn get(&self, uri: &Uri) -> &[Diagnostic] {
         self.per_uri
             .get(uri)
             .map(|v: &Vec<Diagnostic>| v.as_slice())
             .unwrap_or(&[])
     }
 
-    pub fn clear(&mut self, uri: &Url) {
+    pub fn clear(&mut self, uri: &Uri) {
         self.per_uri.remove(uri);
     }
 
@@ -52,7 +51,7 @@ mod tests {
     #[test]
     fn publish_and_get() {
         let mut s = DiagnosticStore::new();
-        let uri = Url::parse("file:///x.rs").unwrap();
+        let uri = Uri::parse("file:///x.rs").unwrap();
         s.publish(PublishDiagnosticsParams {
             uri: uri.clone(),
             diagnostics: vec![diag("oops"), diag("bad")],
