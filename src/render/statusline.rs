@@ -34,7 +34,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
             if let Some(view) = tab.root.find(tab.active_view) {
                 row = view.cursor.0;
                 col = view.cursor.1;
-                if let Some(buf) = app.buffers.iter().find(|b| b.id == view.buffer_id) {
+                if let Some(buf) = app.buffers.get(view.buffer_id.0 as usize) {
                     if let Some(p) = &buf.path {
                         file_name = p
                             .file_name()

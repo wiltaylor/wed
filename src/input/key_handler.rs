@@ -136,6 +136,14 @@ impl KeyHandler {
                 && row < r.y + r.height
         };
 
+        // Tabline click: switch to the clicked tab.
+        for (i, r) in app.last_tab_rects.clone().iter().enumerate() {
+            if in_rect(*r) {
+                app.layout.active_tab = i;
+                return;
+            }
+        }
+
         // Sidebar click: select row, second click on the same row activates.
         if in_rect(app.last_left_sidebar_rect) {
             app.sidebar_focused = true;
@@ -171,17 +179,11 @@ impl KeyHandler {
                     .and_then(|p| p.take_opened_path())
             };
             if let Some(path) = opened {
-                if let Ok(buf) = crate::editor::Buffer::from_path(&path) {
-                    app.buffers.push(buf);
-                    let new_idx = app.buffers.len() - 1;
-                    if let Some(tab) = app.layout.active_tab_mut() {
-                        let id = tab.active_view;
-                        if let Some(view) = tab.root.find_mut(id) {
-                            view.buffer_id = crate::app::BufferId(new_idx as u64);
-                            view.cursor = (0, 0);
-                        }
+                match app.open_file_in_new_tab(&path) {
+                    Ok(()) => app.sidebar_focused = false,
+                    Err(e) => {
+                        app.status_message = Some((format!("open failed: {e}"), true))
                     }
-                    app.sidebar_focused = false;
                 }
             }
             return;
@@ -200,7 +202,7 @@ impl KeyHandler {
             let buf_lines = if let Some(tab) = app.layout.active_tab() {
                 tab.root
                     .find(vid)
-                    .and_then(|v| app.buffers.iter().find(|b| b.id == v.buffer_id))
+                    .and_then(|v| app.buffers.get(v.buffer_id.0 as usize))
                     .map(|b| b.rope.len_lines())
                     .unwrap_or(0)
             } else {
@@ -295,22 +297,8 @@ impl KeyHandler {
                 app.picker = None;
                 app.picker_query.clear();
                 if let Some(path) = chosen {
-                    match crate::editor::Buffer::from_path(&path) {
-                        Ok(buf) => {
-                            app.buffers.push(buf);
-                            let new_idx = app.buffers.len() - 1;
-                            if let Some(tab) = app.layout.active_tab_mut() {
-                                let id = tab.active_view;
-                                if let Some(view) = tab.root.find_mut(id) {
-                                    view.buffer_id = crate::app::BufferId(new_idx as u64);
-                                    view.cursor = (0, 0);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            app.status_message =
-                                Some((format!("open failed: {e}"), true));
-                        }
+                    if let Err(e) = app.open_file_in_new_tab(&path) {
+                        app.status_message = Some((format!("open failed: {e}"), true));
                     }
                 }
             }
@@ -358,19 +346,8 @@ impl KeyHandler {
                 .and_then(|p| p.take_opened_path())
         };
         if let Some(path) = opened {
-            match crate::editor::Buffer::from_path(&path) {
-                Ok(buf) => {
-                    app.buffers.push(buf);
-                    let new_idx = app.buffers.len() - 1;
-                    if let Some(tab) = app.layout.active_tab_mut() {
-                        let id = tab.active_view;
-                        if let Some(view) = tab.root.find_mut(id) {
-                            view.buffer_id = crate::app::BufferId(new_idx as u64);
-                            view.cursor = (0, 0);
-                        }
-                    }
-                    app.sidebar_focused = false;
-                }
+            match app.open_file_in_new_tab(&path) {
+                Ok(()) => app.sidebar_focused = false,
                 Err(e) => {
                     app.status_message = Some((format!("open failed: {e}"), true));
                 }

@@ -74,6 +74,7 @@ pub struct App {
     pub last_editor_rect: ratatui::layout::Rect,
     pub last_editor_view_rects: Vec<(ViewId, ratatui::layout::Rect)>,
     pub last_left_sidebar_rect: ratatui::layout::Rect,
+    pub last_tab_rects: Vec<ratatui::layout::Rect>,
     pub last_sidebar_click_row: Option<usize>,
     pub want_col: usize,
 }
@@ -107,9 +108,43 @@ impl App {
             last_editor_rect: ratatui::layout::Rect::default(),
             last_editor_view_rects: Vec::new(),
             last_left_sidebar_rect: ratatui::layout::Rect::default(),
+            last_tab_rects: Vec::new(),
             last_sidebar_click_row: None,
             want_col: 0,
         }
+    }
+
+    /// Open a file in a new tab. If the file is already open in an
+    /// existing tab, switch to that tab instead.
+    pub fn open_file_in_new_tab(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        // Reuse an existing tab if this file is already open.
+        for (i, b) in self.buffers.iter().enumerate() {
+            if b.path.as_deref() == Some(path) {
+                // Find the tab whose active view points at this buffer.
+                for (ti, tab) in self.layout.tabs.iter().enumerate() {
+                    if let Some(v) = tab.root.find(tab.active_view) {
+                        if v.buffer_id.0 as usize == i {
+                            self.layout.active_tab = ti;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+        let buf = crate::editor::Buffer::from_path(path)?;
+        let new_idx = self.buffers.len();
+        self.buffers.push(buf);
+        let vid = ViewId(new_idx as u64 + 1);
+        let mut view = crate::layout::View::new(vid, BufferId(new_idx as u64));
+        view.cursor = (0, 0);
+        let name = path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let tab = crate::layout::Tab::new(name, crate::layout::SplitNode::Leaf(view), vid);
+        self.layout.tabs.push(tab);
+        self.layout.active_tab = self.layout.tabs.len() - 1;
+        Ok(())
     }
 
     /// Dispatch a single AppEvent into editor state.

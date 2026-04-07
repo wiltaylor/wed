@@ -26,20 +26,17 @@ async fn main() -> Result<()> {
 
     let mut app = App::new();
     for arg in std::env::args().skip(1) {
-        match wed::editor::Buffer::from_path(&arg) {
-            Ok(buf) => app.buffers.push(buf),
-            Err(e) => eprintln!("wed: failed to open {arg}: {e:#}"),
+        if let Err(e) = app.open_file_in_new_tab(std::path::Path::new(&arg)) {
+            eprintln!("wed: failed to open {arg}: {e:#}");
         }
     }
-    if app.buffers.is_empty() {
-        app.buffers.push(wed::editor::Buffer::default());
-    }
-    {
+    if app.layout.tabs.is_empty() {
         use wed::app::{BufferId, ViewId};
         use wed::layout::{SplitNode, Tab, View};
+        app.buffers.push(wed::editor::Buffer::default());
         let view_id = ViewId(1);
         let view = View::new(view_id, BufferId(0));
-        let tab = Tab::new("main", SplitNode::Leaf(view), view_id);
+        let tab = Tab::new("[scratch]", SplitNode::Leaf(view), view_id);
         app.layout.tabs.push(tab);
     }
     if let Err(e) = app.run().await {

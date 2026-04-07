@@ -126,6 +126,8 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     // Tabline
     if let Some(r) = tab_rect {
         tabline::render(frame, app, r);
+    } else {
+        app.last_tab_rects.clear();
     }
 
     // Sidebars

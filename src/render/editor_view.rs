@@ -39,7 +39,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, view: &View, area: Rect, is_acti
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let buf = app.buffers.iter().find(|b| b.id == view.buffer_id);
+    let buf = app.buffers.get(view.buffer_id.0 as usize);
     let total_lines = buf.map(|b| b.rope.len_lines()).unwrap_or(0);
     let ln_style = line_number_style(app);
     let gw = gutter_width(ln_style, total_lines.max(1));

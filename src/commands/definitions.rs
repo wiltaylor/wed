@@ -261,9 +261,33 @@ pub fn register_search_commands(reg: &mut CommandRegistry) {
 }
 
 pub fn register_tab_commands(reg: &mut CommandRegistry) {
-    for name in ["tab.new", "tab.close", "tab.next", "tab.prev", "tab.goto"] {
-        reg.register(name, |_ctx, _| Ok(()));
-    }
+    reg.register("tab.next", |ctx, _| {
+        let n = ctx.layout.tabs.len();
+        if n > 0 {
+            ctx.layout.active_tab = (ctx.layout.active_tab + 1) % n;
+        }
+        Ok(())
+    });
+    reg.register("tab.prev", |ctx, _| {
+        let n = ctx.layout.tabs.len();
+        if n > 0 {
+            ctx.layout.active_tab = (ctx.layout.active_tab + n - 1) % n;
+        }
+        Ok(())
+    });
+    reg.register("tab.close", |ctx, _| {
+        let n = ctx.layout.tabs.len();
+        if n > 1 {
+            let i = ctx.layout.active_tab;
+            ctx.layout.tabs.remove(i);
+            if ctx.layout.active_tab >= ctx.layout.tabs.len() {
+                ctx.layout.active_tab = ctx.layout.tabs.len() - 1;
+            }
+        }
+        Ok(())
+    });
+    reg.register("tab.new", |_ctx, _| Ok(()));
+    reg.register("tab.goto", |_ctx, _| Ok(()));
 }
 
 pub fn register_sidebar_commands(reg: &mut CommandRegistry) {
