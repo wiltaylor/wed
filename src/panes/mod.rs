@@ -1,0 +1,9 @@
+pub mod dap_breakpoints;
+pub mod dap_callstack;
+pub mod dap_variables;
+pub mod diagnostics;
+pub mod file_browser;
+pub mod git;
+pub mod lsp_symbols;
+pub mod search_results;
+pub mod terminal;

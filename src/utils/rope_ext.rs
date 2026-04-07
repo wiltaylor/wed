@@ -1,0 +1,1 @@
+// Rope extension helpers (stub).

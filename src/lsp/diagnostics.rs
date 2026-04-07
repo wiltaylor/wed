@@ -1,0 +1,1 @@
+// LSP diagnostics handling (stub).
