@@ -5,9 +5,9 @@ use tree_sitter::Language;
 /// Minimal highlights query for Rust.
 const RUST_HIGHLIGHTS: &str = r#"
 [
-  "fn" "let" "mut" "const" "static" "if" "else" "match" "for" "while"
+  "fn" "let" "const" "static" "if" "else" "match" "for" "while"
   "loop" "return" "break" "continue" "struct" "enum" "trait" "impl"
-  "pub" "use" "mod" "as" "ref" "in" "where" "self" "Self" "move"
+  "pub" "use" "mod" "as" "in" "where" "move"
 ] @keyword
 
 (string_literal) @string

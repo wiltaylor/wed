@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 
-use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
+use lsp_types::{Diagnostic, PublishDiagnosticsParams};
+use url::Url;
 
 #[derive(Default, Debug)]
 pub struct DiagnosticStore {
@@ -19,7 +20,10 @@ impl DiagnosticStore {
     }
 
     pub fn get(&self, uri: &Url) -> &[Diagnostic] {
-        self.per_uri.get(uri).map(|v| v.as_slice()).unwrap_or(&[])
+        self.per_uri
+            .get(uri)
+            .map(|v: &Vec<Diagnostic>| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn clear(&mut self, uri: &Url) {
@@ -27,7 +31,7 @@ impl DiagnosticStore {
     }
 
     pub fn total(&self) -> usize {
-        self.per_uri.values().map(|v| v.len()).sum()
+        self.per_uri.values().map(|v: &Vec<Diagnostic>| v.len()).sum()
     }
 }
 

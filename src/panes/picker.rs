@@ -108,7 +108,7 @@ pub fn picker_buffers(buffers: Vec<String>) -> Picker<String> {
 
 /// Build a command picker from a `CommandRegistry`.
 pub fn picker_commands(registry: &crate::commands::CommandRegistry) -> Picker<String> {
-    let mut names: Vec<String> = registry.commands.keys().cloned().collect();
+    let mut names: Vec<String> = registry.names().cloned().collect();
     names.sort();
     Picker::new(names)
 }
