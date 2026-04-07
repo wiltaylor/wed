@@ -11,6 +11,27 @@ use ratatui::Frame;
 
 use crate::app::App;
 use crate::input::EditorMode;
+use crate::layout::View;
+
+/// Adjust `view.scroll.0` so the cursor row stays within the visible
+/// window, with a small scroll-off margin top and bottom.
+pub fn clamp_scroll_to_cursor(view: &mut View, area_height: usize) {
+    if area_height == 0 {
+        return;
+    }
+    let scroll_off = 3.min(area_height / 2);
+    let cursor_row = view.cursor.0;
+    let top = view.scroll.0;
+    // Cursor above viewport (with margin)
+    if cursor_row < top + scroll_off {
+        view.scroll.0 = cursor_row.saturating_sub(scroll_off);
+    }
+    // Cursor below viewport (with margin)
+    let bottom = top + area_height;
+    if cursor_row + scroll_off + 1 > bottom {
+        view.scroll.0 = cursor_row + scroll_off + 1 - area_height;
+    }
+}
 
 /// Top-level renderer. Lays out tabline / sidebars / editor / statusline / command-line / popups.
 pub fn render(frame: &mut Frame<'_>, app: &mut App) {
@@ -142,6 +163,16 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     app.last_editor_rect = editor_rect;
     app.last_editor_view_rects.clear();
     if editor_rect.width > 0 && editor_rect.height > 0 {
+        // First pass: compute rects and clamp each view's scroll so the
+        // cursor stays inside the visible area.
+        if let Some(tab) = app.layout.active_tab_mut() {
+            let leaves = tab.root.layout_rects(editor_rect);
+            for (vid, rect) in &leaves {
+                if let Some(view) = tab.root.find_mut(*vid) {
+                    clamp_scroll_to_cursor(view, rect.height as usize);
+                }
+            }
+        }
         // Snapshot the layout so we can free the immutable borrow on
         // `app.layout` before calling `editor_view::render`, which needs
         // `&mut App` for the highlight engine.

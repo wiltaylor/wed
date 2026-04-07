@@ -123,6 +123,52 @@ impl KeyHandler {
 
     pub fn mouse(app: &mut App, ev: crossterm::event::MouseEvent) {
         use crossterm::event::{MouseButton, MouseEventKind};
+        // Mouse wheel scrolling: scroll the view that the cursor is over
+        // (or the active view if not over any).
+        if matches!(ev.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown) {
+            let down = matches!(ev.kind, MouseEventKind::ScrollDown);
+            let amount: usize = 3;
+            // Find which view contains the mouse, defaulting to active.
+            let mut target: Option<crate::app::ViewId> = None;
+            for (vid, r) in &app.last_editor_view_rects {
+                if r.width > 0
+                    && r.height > 0
+                    && ev.column >= r.x
+                    && ev.column < r.x + r.width
+                    && ev.row >= r.y
+                    && ev.row < r.y + r.height
+                {
+                    target = Some(*vid);
+                    break;
+                }
+            }
+            // Look up the buffer line count to clamp scroll/cursor.
+            let max_row = {
+                let mut m = 0usize;
+                if let Some(tab) = app.layout.active_tab() {
+                    let vid = target.unwrap_or(tab.active_view);
+                    if let Some(view) = tab.root.find(vid) {
+                        if let Some(b) = app.buffers.get(view.buffer_id.0 as usize) {
+                            m = b.line_count().saturating_sub(1);
+                        }
+                    }
+                }
+                m
+            };
+            if let Some(tab) = app.layout.active_tab_mut() {
+                let vid = target.unwrap_or(tab.active_view);
+                if let Some(view) = tab.root.find_mut(vid) {
+                    if down {
+                        view.scroll.0 = (view.scroll.0 + amount).min(max_row);
+                        view.cursor.0 = (view.cursor.0 + amount).min(max_row);
+                    } else {
+                        view.scroll.0 = view.scroll.0.saturating_sub(amount);
+                        view.cursor.0 = view.cursor.0.saturating_sub(amount);
+                    }
+                }
+            }
+            return;
+        }
         if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
             return;
         }
@@ -226,25 +272,42 @@ impl KeyHandler {
         }
         if let Some((vid, rect)) = hit {
             // Compute gutter width to translate screen col → buffer col.
-            let buf_lines = if let Some(tab) = app.layout.active_tab() {
-                tab.root
-                    .find(vid)
-                    .and_then(|v| app.buffers.get(v.buffer_id.0 as usize))
+            let (buf_lines, buf_idx) = if let Some(tab) = app.layout.active_tab() {
+                let v = tab.root.find(vid);
+                let idx = v.map(|v| v.buffer_id.0 as usize);
+                let lines = idx
+                    .and_then(|i| app.buffers.get(i))
                     .map(|b| b.rope.len_lines())
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                (lines, idx)
             } else {
-                0
+                (0, None)
             };
             let gw = crate::render::editor_view::gutter_width(
                 crate::render::editor_view::line_number_style(app),
                 buf_lines.max(1),
             );
+            // Compute the (clamped) target row + col before re-borrowing.
+            let local_row = (row - rect.y) as usize;
+            let local_col = col.saturating_sub(rect.x);
+            let (mut br, mut bc) = (0, 0);
+            if let Some(tab) = app.layout.active_tab() {
+                if let Some(view) = tab.root.find(vid) {
+                    let p = view.screen_to_buffer(local_row as u16, local_col, gw);
+                    br = p.0;
+                    bc = p.1;
+                }
+            }
+            // Clamp row and col to the buffer's actual contents.
+            if let Some(b) = buf_idx.and_then(|i| app.buffers.get(i)) {
+                let max_row = b.line_count().saturating_sub(1);
+                br = br.min(max_row);
+                let line_chars = b.line_len_chars(br);
+                bc = bc.min(line_chars);
+            }
             if let Some(tab) = app.layout.active_tab_mut() {
                 tab.active_view = vid;
                 if let Some(view) = tab.root.find_mut(vid) {
-                    let local_row = (row - rect.y) as usize;
-                    let local_col = col.saturating_sub(rect.x);
-                    let (br, bc) = view.screen_to_buffer(local_row as u16, local_col, gw);
                     view.cursor = (br, bc);
                 }
             }
