@@ -169,6 +169,19 @@ impl Pane for FileBrowserPane {
     fn take_opened_path(&mut self) -> Option<PathBuf> {
         self.last_opened.take()
     }
+    fn row_count(&self) -> usize {
+        self.visible().len()
+    }
+    fn select_row(&mut self, row: usize) {
+        let len = self.visible().len();
+        if len == 0 {
+            return;
+        }
+        self.selected = row.min(len - 1);
+    }
+    fn activate_selected(&mut self) {
+        self.activate();
+    }
     fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),

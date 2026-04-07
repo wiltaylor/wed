@@ -99,33 +99,20 @@ pub fn render(frame: &mut Frame<'_>, app: &App, view: &View, area: Rect, is_acti
             String::new()
         };
 
-        // Render text, painting the cursor cell if it's on this row and active.
-        if is_active && buf_row == cursor_row && cursor_col >= scroll_col {
-            let rel_col = cursor_col - scroll_col;
-            let chars: Vec<char> = line_text.chars().collect();
-            let before: String = chars.iter().take(rel_col).collect();
-            let cursor_char = chars.get(rel_col).copied().unwrap_or(' ');
-            let after: String = chars.iter().skip(rel_col + 1).collect();
-            if !before.is_empty() {
-                spans.push(Span::raw(before));
-            }
-            spans.push(Span::styled(
-                cursor_char.to_string(),
-                Style::default()
-                    .bg(Color::White)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::REVERSED),
-            ));
-            if !after.is_empty() {
-                spans.push(Span::raw(after));
-            }
-        } else {
-            spans.push(Span::raw(line_text));
-        }
-
+        spans.push(Span::raw(line_text));
         lines.push(Line::from(spans));
     }
 
     let para = Paragraph::new(lines);
     frame.render_widget(para, area);
+
+    // Position the real terminal cursor for the active view so the user
+    // gets the OS-level blinking cursor (shape set in `App::run`).
+    if is_active && cursor_row >= scroll_row && cursor_col >= scroll_col {
+        let screen_row = (cursor_row - scroll_row) as u16;
+        let screen_col = (cursor_col - scroll_col) as u16 + gw;
+        if screen_row < area.height && screen_col < area.width {
+            frame.set_cursor_position((area.x + screen_col, area.y + screen_row));
+        }
+    }
 }

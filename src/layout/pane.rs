@@ -24,6 +24,14 @@ pub trait Pane: Send + Sync {
     fn take_opened_path(&mut self) -> Option<std::path::PathBuf> {
         None
     }
+    /// How many rows the pane currently displays. Used for mouse hit-testing.
+    fn row_count(&self) -> usize {
+        0
+    }
+    /// Move the pane's selection to a specific row index.
+    fn select_row(&mut self, _row: usize) {}
+    /// Activate the currently selected row (e.g. expand directory or open file).
+    fn activate_selected(&mut self) {}
 
     async fn on_event(&mut self) {}
 }

@@ -71,6 +71,10 @@ pub struct App {
     pub picker: Option<crate::panes::picker::Picker<std::path::PathBuf>>,
     pub picker_query: String,
     pub sidebar_focused: bool,
+    pub last_editor_rect: ratatui::layout::Rect,
+    pub last_editor_view_rects: Vec<(ViewId, ratatui::layout::Rect)>,
+    pub last_left_sidebar_rect: ratatui::layout::Rect,
+    pub last_sidebar_click_row: Option<usize>,
     pub want_col: usize,
 }
 
@@ -100,6 +104,10 @@ impl App {
             picker: None,
             picker_query: String::new(),
             sidebar_focused: false,
+            last_editor_rect: ratatui::layout::Rect::default(),
+            last_editor_view_rects: Vec::new(),
+            last_left_sidebar_rect: ratatui::layout::Rect::default(),
+            last_sidebar_click_row: None,
             want_col: 0,
         }
     }
@@ -111,6 +119,9 @@ impl App {
             AppEvent::Key(k) => {
                 let key = crate::input::keys::Key::from_event(k);
                 crate::input::key_handler::KeyHandler::handle(self, key);
+            }
+            AppEvent::Mouse(m) => {
+                crate::input::key_handler::KeyHandler::mouse(self, m);
             }
             AppEvent::Resize(_, _) => {}
             AppEvent::Paste(s) => {
@@ -172,8 +183,22 @@ impl App {
         let backend = CrosstermBackend::new(std::io::stdout());
         let mut terminal = Terminal::new(backend)?;
 
+        fn apply_cursor_style(mode: EditorMode) {
+            use crossterm::cursor::SetCursorStyle;
+            let style = match mode {
+                EditorMode::Insert => SetCursorStyle::BlinkingBar,
+                EditorMode::Replace => SetCursorStyle::BlinkingUnderScore,
+                _ => SetCursorStyle::BlinkingBlock,
+            };
+            let _ = execute!(std::io::stdout(), style);
+        }
+
         // Initial draw.
-        terminal.draw(|f| crate::render::render(f, self))?;
+        apply_cursor_style(self.mode);
+        {
+            let app_ref: &mut App = self;
+            terminal.draw(|f| crate::render::render(f, app_ref))?;
+        }
 
         while !self.should_quit {
             // Block on the first event, then drain any others non-blockingly.
@@ -187,7 +212,9 @@ impl App {
             }
 
             if !self.should_quit {
-                terminal.draw(|f| crate::render::render(f, self))?;
+                apply_cursor_style(self.mode);
+                let app_ref: &mut App = self;
+                terminal.draw(|f| crate::render::render(f, app_ref))?;
             }
         }
 

@@ -121,6 +121,108 @@ impl KeyHandler {
         }
     }
 
+    pub fn mouse(app: &mut App, ev: crossterm::event::MouseEvent) {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        if !matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return;
+        }
+        let (col, row) = (ev.column, ev.row);
+        let in_rect = |r: ratatui::layout::Rect| {
+            r.width > 0
+                && r.height > 0
+                && col >= r.x
+                && col < r.x + r.width
+                && row >= r.y
+                && row < r.y + r.height
+        };
+
+        // Sidebar click: select row, second click on the same row activates.
+        if in_rect(app.last_left_sidebar_rect) {
+            app.sidebar_focused = true;
+            // Sidebar is rendered with a Block border (1-cell padding).
+            let inner_y = app.last_left_sidebar_rect.y + 1;
+            let clicked_row = row.saturating_sub(inner_y) as usize;
+            let sb = &mut app.layout.left_sidebar;
+            if let Some(pane) = sb.panes.get_mut(sb.active) {
+                let len = pane.row_count();
+                if len > 0 {
+                    let target = clicked_row.min(len - 1);
+                    // We don't have access to the previous selection through
+                    // the trait; emulate "second click activates" by always
+                    // selecting then activating when the click row matches.
+                    pane.select_row(target);
+                    if clicked_row < len {
+                        // First click selects; the user can click again to
+                        // activate. Track via a per-app last-clicked row.
+                        if app.last_sidebar_click_row == Some(target) {
+                            pane.activate_selected();
+                            app.last_sidebar_click_row = None;
+                        } else {
+                            app.last_sidebar_click_row = Some(target);
+                        }
+                    }
+                }
+            }
+            // After potential activation, check if a file was opened.
+            let opened = {
+                let sb = &mut app.layout.left_sidebar;
+                sb.panes
+                    .get_mut(sb.active)
+                    .and_then(|p| p.take_opened_path())
+            };
+            if let Some(path) = opened {
+                if let Ok(buf) = crate::editor::Buffer::from_path(&path) {
+                    app.buffers.push(buf);
+                    let new_idx = app.buffers.len() - 1;
+                    if let Some(tab) = app.layout.active_tab_mut() {
+                        let id = tab.active_view;
+                        if let Some(view) = tab.root.find_mut(id) {
+                            view.buffer_id = crate::app::BufferId(new_idx as u64);
+                            view.cursor = (0, 0);
+                        }
+                    }
+                    app.sidebar_focused = false;
+                }
+            }
+            return;
+        }
+
+        // Editor click: figure out which view leaf was hit, set cursor.
+        let mut hit: Option<(crate::app::ViewId, ratatui::layout::Rect)> = None;
+        for (vid, r) in &app.last_editor_view_rects {
+            if in_rect(*r) {
+                hit = Some((*vid, *r));
+                break;
+            }
+        }
+        if let Some((vid, rect)) = hit {
+            // Compute gutter width to translate screen col → buffer col.
+            let buf_lines = if let Some(tab) = app.layout.active_tab() {
+                tab.root
+                    .find(vid)
+                    .and_then(|v| app.buffers.iter().find(|b| b.id == v.buffer_id))
+                    .map(|b| b.rope.len_lines())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+            let gw = crate::render::editor_view::gutter_width(
+                crate::render::editor_view::line_number_style(app),
+                buf_lines.max(1),
+            );
+            if let Some(tab) = app.layout.active_tab_mut() {
+                tab.active_view = vid;
+                if let Some(view) = tab.root.find_mut(vid) {
+                    let local_row = (row - rect.y) as usize;
+                    let local_col = col.saturating_sub(rect.x);
+                    let (br, bc) = view.screen_to_buffer(local_row as u16, local_col, gw);
+                    view.cursor = (br, bc);
+                }
+            }
+            app.sidebar_focused = false;
+        }
+    }
+
     fn handle_leader(app: &mut App, key: Key) {
         use crate::config::keybindings::Resolution;
         if key == Key::Esc {

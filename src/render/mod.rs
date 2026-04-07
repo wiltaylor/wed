@@ -13,7 +13,7 @@ use crate::app::App;
 use crate::input::EditorMode;
 
 /// Top-level renderer. Lays out tabline / sidebars / editor / statusline / command-line / popups.
-pub fn render(frame: &mut Frame<'_>, app: &App) {
+pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     let size = frame.area();
     if size.width == 0 || size.height == 0 {
         return;
@@ -137,6 +137,8 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
     }
 
     // Editor: layout the active tab's split tree.
+    app.last_editor_rect = editor_rect;
+    app.last_editor_view_rects.clear();
     if editor_rect.width > 0 && editor_rect.height > 0 {
         if let Some(tab) = app.layout.active_tab() {
             let leaves = tab.root.layout_rects(editor_rect);
@@ -146,8 +148,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
                     editor_view::render(frame, app, view, *rect, is_active);
                 }
             }
+            app.last_editor_view_rects = leaves;
         }
     }
+    app.last_left_sidebar_rect = left_rect.unwrap_or_default();
 
     // Statusline (overlaid by command line when in command/search mode).
     if let Some(r) = status_rect {
