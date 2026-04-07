@@ -157,15 +157,44 @@ pub fn register_editor_commands(reg: &mut CommandRegistry) {
 }
 
 pub fn register_app_commands(reg: &mut CommandRegistry) {
-    reg.register("app.quit", |ctx, _| {
+    reg.register("app.quit", |ctx, args| {
+        let force = args.iter().any(|a| *a == "force");
+        if !force {
+            if let Some(b) = ctx.buffers.iter().find(|b| b.dirty) {
+                let name = b
+                    .path
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "[No Name]".to_string());
+                anyhow::bail!("unsaved changes in {name} (use :q! to force)");
+            }
+        }
         *ctx.quit = true;
         Ok(())
     });
-    reg.register("app.quit_all", |ctx, _| {
+    reg.register("app.quit_all", |ctx, args| {
+        let force = args.iter().any(|a| *a == "force");
+        if !force {
+            if let Some(b) = ctx.buffers.iter().find(|b| b.dirty) {
+                let name = b
+                    .path
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "[No Name]".to_string());
+                anyhow::bail!("unsaved changes in {name} (use :qa! to force)");
+            }
+        }
         *ctx.quit = true;
         Ok(())
     });
     reg.register("app.write_quit", |ctx, _| {
+        for b in ctx.buffers.iter_mut() {
+            if b.path.is_some() {
+                b.save()?;
+            }
+        }
         *ctx.quit = true;
         Ok(())
     });

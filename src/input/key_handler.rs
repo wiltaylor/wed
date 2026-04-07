@@ -88,6 +88,7 @@ pub struct KeyHandler;
 
 impl KeyHandler {
     pub fn handle(app: &mut App, key: Key) {
+        app.status_message = None;
         let mode = app.mode;
         match mode {
             EditorMode::Normal => Self::handle_normal(app, key),
@@ -156,8 +157,12 @@ impl KeyHandler {
                     let mut ctx = crate::commands::CommandContext::new(
                         buffers, layout, mode, config, event_tx, should_quit,
                     );
-                    let _ = command_line.accept(&registry, &mut ctx);
+                    let result = command_line.accept(&registry, &mut ctx);
                     app.commands = registry;
+                    match result {
+                        Ok(()) => app.status_message = None,
+                        Err(e) => app.status_message = Some((format!("{e}"), true)),
+                    }
                     if matches!(app.mode, EditorMode::Command) {
                         app.mode = EditorMode::Normal;
                     }

@@ -21,7 +21,8 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
 
     let show_tabline = app.config.ui.tabline && !app.layout.tabs.is_empty();
     let show_status = app.config.ui.statusline;
-    let in_cmdline = matches!(app.mode, EditorMode::Command | EditorMode::Search);
+    let in_cmdline = matches!(app.mode, EditorMode::Command | EditorMode::Search)
+        || app.status_message.is_some();
 
     // Reserve top row for tabline.
     let mut y = size.y;

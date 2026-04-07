@@ -65,6 +65,7 @@ pub struct App {
     pub last_change: crate::commands::context::LastChange,
     pub search: crate::editor::search::SearchState,
     pub command_line: crate::commands::command_line::CommandLineState,
+    pub status_message: Option<(String, bool)>,
     pub want_col: usize,
 }
 
@@ -88,6 +89,7 @@ impl App {
             last_change: crate::commands::context::LastChange::default(),
             search: crate::editor::search::SearchState::default(),
             command_line: crate::commands::command_line::CommandLineState::new(),
+            status_message: None,
             want_col: 0,
         }
     }
