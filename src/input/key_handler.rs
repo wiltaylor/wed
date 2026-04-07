@@ -19,17 +19,29 @@ use crate::input::mode::{EditorMode, Operator, PendingKey, VisualKind};
 
 /// View-agnostic helper: returns the active buffer index and a (row,col) cursor.
 fn active_buffer_index(app: &App) -> Option<usize> {
-    if app.buffers.is_empty() { None } else { Some(0) }
+    if app.buffers.is_empty() {
+        None
+    } else {
+        Some(0)
+    }
 }
 
 fn cursor_of(app: &App) -> Cursor {
     // Try to read from active view; fall back to (0,0).
     if let Some(tab) = app.layout.active_tab() {
         if let Some(view) = tab.root.find(tab.active_view) {
-            return Cursor { row: view.cursor.0, col: view.cursor.1, want_col: app.want_col };
+            return Cursor {
+                row: view.cursor.0,
+                col: view.cursor.1,
+                want_col: app.want_col,
+            };
         }
     }
-    Cursor { row: 0, col: 0, want_col: app.want_col }
+    Cursor {
+        row: 0,
+        col: 0,
+        want_col: app.want_col,
+    }
 }
 
 fn set_cursor(app: &mut App, c: Cursor) {
@@ -66,7 +78,9 @@ impl KeyHandler {
             EditorMode::Pending(p) => Self::handle_pending(app, p, key),
             EditorMode::Operator(op) => Self::handle_operator_motion(app, op, key),
             EditorMode::Command | EditorMode::Search => {
-                if key == Key::Esc { app.mode = EditorMode::Normal; }
+                if key == Key::Esc {
+                    app.mode = EditorMode::Normal;
+                }
             }
         }
     }
@@ -102,10 +116,30 @@ impl KeyHandler {
                 }
             }
             Key::Char('g') => app.mode = EditorMode::Pending(PendingKey::G),
-            Key::Char('f') => app.mode = EditorMode::Pending(PendingKey::FindChar { forward: true, till: false }),
-            Key::Char('F') => app.mode = EditorMode::Pending(PendingKey::FindChar { forward: false, till: false }),
-            Key::Char('t') => app.mode = EditorMode::Pending(PendingKey::FindChar { forward: true, till: true }),
-            Key::Char('T') => app.mode = EditorMode::Pending(PendingKey::FindChar { forward: false, till: true }),
+            Key::Char('f') => {
+                app.mode = EditorMode::Pending(PendingKey::FindChar {
+                    forward: true,
+                    till: false,
+                })
+            }
+            Key::Char('F') => {
+                app.mode = EditorMode::Pending(PendingKey::FindChar {
+                    forward: false,
+                    till: false,
+                })
+            }
+            Key::Char('t') => {
+                app.mode = EditorMode::Pending(PendingKey::FindChar {
+                    forward: true,
+                    till: true,
+                })
+            }
+            Key::Char('T') => {
+                app.mode = EditorMode::Pending(PendingKey::FindChar {
+                    forward: false,
+                    till: true,
+                })
+            }
             Key::Char('%') => Self::motion(app, |b, c| motions::match_bracket(b, c)),
             Key::Char('(') => Self::motion(app, |b, c| motions::sentence_backward(b, c, count)),
             Key::Char(')') => Self::motion(app, |b, c| motions::sentence_forward(b, c, count)),
@@ -113,47 +147,83 @@ impl KeyHandler {
             Key::Char('}') => Self::motion(app, |b, c| motions::paragraph_forward(b, c, count)),
             Key::Char('H') => Self::motion(app, |b, _| Cursor::new(0, 0)),
             Key::Char('M') => Self::motion(app, |b, _| Cursor::new(b.line_count() / 2, 0)),
-            Key::Char('L') => Self::motion(app, |b, _| Cursor::new(b.line_count().saturating_sub(1), 0)),
+            Key::Char('L') => {
+                Self::motion(app, |b, _| Cursor::new(b.line_count().saturating_sub(1), 0))
+            }
             Key::Ctrl('d') => Self::motion(app, |b, c| motions::down(b, c, 10)),
             Key::Ctrl('u') => Self::motion(app, |b, c| motions::up(b, c, 10)),
             Key::Ctrl('f') => Self::motion(app, |b, c| motions::down(b, c, 20)),
             Key::Ctrl('b') => Self::motion(app, |b, c| motions::up(b, c, 20)),
 
             // Operators
-            Key::Char('d') => { app.pending.operator = Some(Operator::Delete); app.mode = EditorMode::Operator(Operator::Delete); }
-            Key::Char('c') => { app.pending.operator = Some(Operator::Change); app.mode = EditorMode::Operator(Operator::Change); }
-            Key::Char('y') => { app.pending.operator = Some(Operator::Yank); app.mode = EditorMode::Operator(Operator::Yank); }
-            Key::Char('>') => { app.pending.operator = Some(Operator::Indent); app.mode = EditorMode::Operator(Operator::Indent); }
-            Key::Char('<') => { app.pending.operator = Some(Operator::Dedent); app.mode = EditorMode::Operator(Operator::Dedent); }
+            Key::Char('d') => {
+                app.pending.operator = Some(Operator::Delete);
+                app.mode = EditorMode::Operator(Operator::Delete);
+            }
+            Key::Char('c') => {
+                app.pending.operator = Some(Operator::Change);
+                app.mode = EditorMode::Operator(Operator::Change);
+            }
+            Key::Char('y') => {
+                app.pending.operator = Some(Operator::Yank);
+                app.mode = EditorMode::Operator(Operator::Yank);
+            }
+            Key::Char('>') => {
+                app.pending.operator = Some(Operator::Indent);
+                app.mode = EditorMode::Operator(Operator::Indent);
+            }
+            Key::Char('<') => {
+                app.pending.operator = Some(Operator::Dedent);
+                app.mode = EditorMode::Operator(Operator::Dedent);
+            }
 
             // Line ops
             Key::Char('x') => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
-                    let p = b.point_to_byte(Point { row: cur.row, col: cur.col });
+                    let p = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
                     let end = (p + 1).min(b.len_bytes());
-                    if end > p { b.delete(p..end); }
+                    if end > p {
+                        b.delete(p..end);
+                    }
                 }
-                app.last_change = LastChange { kind: "x".into(), count, inserted: String::new() };
+                app.last_change = LastChange {
+                    kind: "x".into(),
+                    count,
+                    inserted: String::new(),
+                };
                 app.pending.reset();
             }
             Key::Char('p') => {
                 let cur = cursor_of(app);
                 let entry = buf(app).and_then(|b| b.registers.get('"').cloned());
                 if let (Some(b), Some(e)) = (buf_mut(app), entry) {
-                    let p = b.point_to_byte(Point { row: cur.row, col: cur.col });
+                    let p = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
                     let new = ops::paste_after(b, p, &e);
                     let np = b.byte_to_point(new);
                     set_cursor(app, Cursor::new(np.row, np.col));
                 }
-                app.last_change = LastChange { kind: "p".into(), count, inserted: String::new() };
+                app.last_change = LastChange {
+                    kind: "p".into(),
+                    count,
+                    inserted: String::new(),
+                };
                 app.pending.reset();
             }
             Key::Char('P') => {
                 let cur = cursor_of(app);
                 let entry = buf(app).and_then(|b| b.registers.get('"').cloned());
                 if let (Some(b), Some(e)) = (buf_mut(app), entry) {
-                    let p = b.point_to_byte(Point { row: cur.row, col: cur.col });
+                    let p = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
                     let new = ops::paste_before(b, p, &e);
                     let np = b.byte_to_point(new);
                     set_cursor(app, Cursor::new(np.row, np.col));
@@ -200,7 +270,10 @@ impl KeyHandler {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
                     let line_end = b.line_len_chars(cur.row);
-                    let pos = b.point_to_byte(Point { row: cur.row, col: line_end });
+                    let pos = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: line_end,
+                    });
                     b.insert(pos, "\n");
                     set_cursor(app, Cursor::new(cur.row + 1, 0));
                 }
@@ -209,7 +282,10 @@ impl KeyHandler {
             Key::Char('O') => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
-                    let pos = b.point_to_byte(Point { row: cur.row, col: 0 });
+                    let pos = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: 0,
+                    });
                     b.insert(pos, "\n");
                     set_cursor(app, Cursor::new(cur.row, 0));
                 }
@@ -278,7 +354,10 @@ impl KeyHandler {
             Key::Backspace => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
-                    let pos = b.point_to_byte(Point { row: cur.row, col: cur.col });
+                    let pos = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
                     if pos > 0 {
                         b.delete(pos - 1..pos);
                         let np = b.byte_to_point(pos - 1);
@@ -290,9 +369,17 @@ impl KeyHandler {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
                     let bw = motions::word_backward(b, cur, 1);
-                    let from = b.point_to_byte(Point { row: bw.row, col: bw.col });
-                    let to = b.point_to_byte(Point { row: cur.row, col: cur.col });
-                    if to > from { b.delete(from..to); }
+                    let from = b.point_to_byte(Point {
+                        row: bw.row,
+                        col: bw.col,
+                    });
+                    let to = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
+                    if to > from {
+                        b.delete(from..to);
+                    }
                     let np = b.byte_to_point(from);
                     set_cursor(app, Cursor::new(np.row, np.col));
                 }
@@ -300,9 +387,17 @@ impl KeyHandler {
             Key::Ctrl('u') => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
-                    let from = b.point_to_byte(Point { row: cur.row, col: 0 });
-                    let to = b.point_to_byte(Point { row: cur.row, col: cur.col });
-                    if to > from { b.delete(from..to); }
+                    let from = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: 0,
+                    });
+                    let to = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
+                    if to > from {
+                        b.delete(from..to);
+                    }
                     set_cursor(app, Cursor::new(cur.row, 0));
                 }
             }
@@ -313,7 +408,10 @@ impl KeyHandler {
     fn insert_str(app: &mut App, s: &str) {
         let cur = cursor_of(app);
         if let Some(b) = buf_mut(app) {
-            let pos = b.point_to_byte(Point { row: cur.row, col: cur.col });
+            let pos = b.point_to_byte(Point {
+                row: cur.row,
+                col: cur.col,
+            });
             b.insert(pos, s);
             let np = b.byte_to_point(pos + s.len());
             set_cursor(app, Cursor::new(np.row, np.col));
@@ -328,9 +426,14 @@ impl KeyHandler {
             Key::Char(c) => {
                 let cur = cursor_of(app);
                 if let Some(b) = buf_mut(app) {
-                    let pos = b.point_to_byte(Point { row: cur.row, col: cur.col });
+                    let pos = b.point_to_byte(Point {
+                        row: cur.row,
+                        col: cur.col,
+                    });
                     let end = (pos + 1).min(b.len_bytes());
-                    if end > pos { b.delete(pos..end); }
+                    if end > pos {
+                        b.delete(pos..end);
+                    }
                     b.insert(pos, &c.to_string());
                     let np = b.byte_to_point(pos + c.len_utf8());
                     set_cursor(app, Cursor::new(np.row, np.col));
@@ -357,8 +460,13 @@ impl KeyHandler {
                 app.pending.last_find = Some((ch, forward, till));
                 app.mode = EditorMode::Normal;
             }
-            (_, Key::Esc) => { app.mode = EditorMode::Normal; app.pending.reset(); }
-            _ => { app.mode = EditorMode::Normal; }
+            (_, Key::Esc) => {
+                app.mode = EditorMode::Normal;
+                app.pending.reset();
+            }
+            _ => {
+                app.mode = EditorMode::Normal;
+            }
         }
     }
 
@@ -373,22 +481,35 @@ impl KeyHandler {
         let count = app.pending.count.unwrap_or(1).max(1);
 
         // Doubled-letter line operator: dd, cc, yy, >>, <<
-        let line_op = matches!((op, key),
-            (Operator::Delete, Key::Char('d')) |
-            (Operator::Change, Key::Char('c')) |
-            (Operator::Yank, Key::Char('y')) |
-            (Operator::Indent, Key::Char('>')) |
-            (Operator::Dedent, Key::Char('<')) |
-            (Operator::Comment, Key::Char('c'))
+        let line_op = matches!(
+            (op, key),
+            (Operator::Delete, Key::Char('d'))
+                | (Operator::Change, Key::Char('c'))
+                | (Operator::Yank, Key::Char('y'))
+                | (Operator::Indent, Key::Char('>'))
+                | (Operator::Dedent, Key::Char('<'))
+                | (Operator::Comment, Key::Char('c'))
         );
         if line_op {
             let cur = cursor_of(app);
             let start_row = cur.row;
-            let end_row = (cur.row + count - 1).min(buf(app).map(|b| b.line_count().saturating_sub(1)).unwrap_or(0));
+            let end_row = (cur.row + count - 1).min(
+                buf(app)
+                    .map(|b| b.line_count().saturating_sub(1))
+                    .unwrap_or(0),
+            );
             Self::apply_line_op(app, op, start_row, end_row);
-            app.last_change = LastChange { kind: format!("{:?}_line", op), count, inserted: String::new() };
+            app.last_change = LastChange {
+                kind: format!("{:?}_line", op),
+                count,
+                inserted: String::new(),
+            };
             app.pending.reset();
-            app.mode = if matches!(op, Operator::Change) { EditorMode::Insert } else { EditorMode::Normal };
+            app.mode = if matches!(op, Operator::Change) {
+                EditorMode::Insert
+            } else {
+                EditorMode::Normal
+            };
             return;
         }
 
@@ -407,22 +528,76 @@ impl KeyHandler {
             let range_opt = if let Key::Char(ch) = key {
                 let buf_ref = buf(app).unwrap();
                 match ch {
-                    'w' => if inner { text_objects::inner_word(buf_ref, cur) } else { text_objects::around_word(buf_ref, cur) },
-                    '"' => if inner { text_objects::inner_pair(buf_ref, cur, '"', '"') } else { text_objects::around_pair(buf_ref, cur, '"', '"') },
-                    '\'' => if inner { text_objects::inner_pair(buf_ref, cur, '\'', '\'') } else { text_objects::around_pair(buf_ref, cur, '\'', '\'') },
-                    '(' | ')' => if inner { text_objects::inner_pair(buf_ref, cur, '(', ')') } else { text_objects::around_pair(buf_ref, cur, '(', ')') },
-                    '[' | ']' => if inner { text_objects::inner_pair(buf_ref, cur, '[', ']') } else { text_objects::around_pair(buf_ref, cur, '[', ']') },
-                    '{' | '}' => if inner { text_objects::inner_pair(buf_ref, cur, '{', '}') } else { text_objects::around_pair(buf_ref, cur, '{', '}') },
-                    '<' | '>' => if inner { text_objects::inner_pair(buf_ref, cur, '<', '>') } else { text_objects::around_pair(buf_ref, cur, '<', '>') },
-                    'p' => if inner { text_objects::inner_paragraph(buf_ref, cur) } else { text_objects::around_paragraph(buf_ref, cur) },
+                    'w' => {
+                        if inner {
+                            text_objects::inner_word(buf_ref, cur)
+                        } else {
+                            text_objects::around_word(buf_ref, cur)
+                        }
+                    }
+                    '"' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '"', '"')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '"', '"')
+                        }
+                    }
+                    '\'' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '\'', '\'')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '\'', '\'')
+                        }
+                    }
+                    '(' | ')' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '(', ')')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '(', ')')
+                        }
+                    }
+                    '[' | ']' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '[', ']')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '[', ']')
+                        }
+                    }
+                    '{' | '}' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '{', '}')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '{', '}')
+                        }
+                    }
+                    '<' | '>' => {
+                        if inner {
+                            text_objects::inner_pair(buf_ref, cur, '<', '>')
+                        } else {
+                            text_objects::around_pair(buf_ref, cur, '<', '>')
+                        }
+                    }
+                    'p' => {
+                        if inner {
+                            text_objects::inner_paragraph(buf_ref, cur)
+                        } else {
+                            text_objects::around_paragraph(buf_ref, cur)
+                        }
+                    }
                     _ => None,
                 }
-            } else { None };
+            } else {
+                None
+            };
             if let Some(r) = range_opt {
                 Self::apply_byte_range_op(app, op, r.start, r.end);
             }
             app.pending.reset();
-            app.mode = if matches!(op, Operator::Change) { EditorMode::Insert } else { EditorMode::Normal };
+            app.mode = if matches!(op, Operator::Change) {
+                EditorMode::Insert
+            } else {
+                EditorMode::Normal
+            };
             return;
         }
 
@@ -451,13 +626,27 @@ impl KeyHandler {
                 return;
             }
         };
-        let bs = buf(app).unwrap().point_to_byte(Point { row: start.row, col: start.col });
-        let be = buf(app).unwrap().point_to_byte(Point { row: end.row, col: end.col });
+        let bs = buf(app).unwrap().point_to_byte(Point {
+            row: start.row,
+            col: start.col,
+        });
+        let be = buf(app).unwrap().point_to_byte(Point {
+            row: end.row,
+            col: end.col,
+        });
         let (lo, hi) = if bs <= be { (bs, be) } else { (be, bs) };
         Self::apply_byte_range_op(app, op, lo, hi);
-        app.last_change = LastChange { kind: format!("{:?}_motion", op), count, inserted: String::new() };
+        app.last_change = LastChange {
+            kind: format!("{:?}_motion", op),
+            count,
+            inserted: String::new(),
+        };
         app.pending.reset();
-        app.mode = if matches!(op, Operator::Change) { EditorMode::Insert } else { EditorMode::Normal };
+        app.mode = if matches!(op, Operator::Change) {
+            EditorMode::Insert
+        } else {
+            EditorMode::Normal
+        };
     }
 
     fn apply_byte_range_op(app: &mut App, op: Operator, lo: usize, hi: usize) {
@@ -478,7 +667,10 @@ impl KeyHandler {
                 }
             }
             Operator::Indent | Operator::Dedent | Operator::Comment => {
-                let (sp, ep) = (buf(app).unwrap().byte_to_point(lo), buf(app).unwrap().byte_to_point(hi));
+                let (sp, ep) = (
+                    buf(app).unwrap().byte_to_point(lo),
+                    buf(app).unwrap().byte_to_point(hi),
+                );
                 Self::apply_line_op(app, op, sp.row, ep.row);
             }
         }
@@ -488,10 +680,16 @@ impl KeyHandler {
         match op {
             Operator::Delete | Operator::Change => {
                 if let Some(b) = buf_mut(app) {
-                    let from = b.point_to_byte(Point { row: start_row, col: 0 });
+                    let from = b.point_to_byte(Point {
+                        row: start_row,
+                        col: 0,
+                    });
                     let next_row = end_row + 1;
                     let to = if next_row < b.line_count() {
-                        b.point_to_byte(Point { row: next_row, col: 0 })
+                        b.point_to_byte(Point {
+                            row: next_row,
+                            col: 0,
+                        })
                     } else {
                         b.len_bytes()
                     };
@@ -504,10 +702,16 @@ impl KeyHandler {
             }
             Operator::Yank => {
                 if let Some(b) = buf_mut(app) {
-                    let from = b.point_to_byte(Point { row: start_row, col: 0 });
+                    let from = b.point_to_byte(Point {
+                        row: start_row,
+                        col: 0,
+                    });
                     let next_row = end_row + 1;
                     let to = if next_row < b.line_count() {
-                        b.point_to_byte(Point { row: next_row, col: 0 })
+                        b.point_to_byte(Point {
+                            row: next_row,
+                            col: 0,
+                        })
                     } else {
                         b.len_bytes()
                     };
@@ -616,7 +820,9 @@ mod tests {
     fn ci_quote_text_object() {
         let mut app = app_with("foo \"bar\" baz");
         // move to inside the quote
-        for _ in 0..6 { KeyHandler::handle(&mut app, Key::Char('l')); }
+        for _ in 0..6 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
         KeyHandler::handle(&mut app, Key::Char('c'));
         KeyHandler::handle(&mut app, Key::Char('i'));
         KeyHandler::handle(&mut app, Key::Char('"'));
@@ -627,7 +833,9 @@ mod tests {
     #[test]
     fn da_paren_text_object() {
         let mut app = app_with("call(a, b) end");
-        for _ in 0..6 { KeyHandler::handle(&mut app, Key::Char('l')); }
+        for _ in 0..6 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
         KeyHandler::handle(&mut app, Key::Char('d'));
         KeyHandler::handle(&mut app, Key::Char('a'));
         KeyHandler::handle(&mut app, Key::Char('('));

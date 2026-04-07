@@ -1,7 +1,7 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
 
 use crate::app::App;
 

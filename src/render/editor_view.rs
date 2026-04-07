@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::app::App;
 use crate::layout::View;
@@ -111,7 +111,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App, view: &View, area: Rect, is_acti
             }
             spans.push(Span::styled(
                 cursor_char.to_string(),
-                Style::default().bg(Color::White).fg(Color::Black).add_modifier(Modifier::REVERSED),
+                Style::default()
+                    .bg(Color::White)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::REVERSED),
             ));
             if !after.is_empty() {
                 spans.push(Span::raw(after));

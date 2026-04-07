@@ -10,7 +10,11 @@ pub struct Cursor {
 
 impl Cursor {
     pub fn new(row: usize, col: usize) -> Self {
-        Self { row, col, want_col: col }
+        Self {
+            row,
+            col,
+            want_col: col,
+        }
     }
 
     /// Set position and reset column affinity.

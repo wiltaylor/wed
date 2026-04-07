@@ -10,7 +10,9 @@ pub enum YankKind {
 }
 
 impl Default for YankKind {
-    fn default() -> Self { YankKind::Char }
+    fn default() -> Self {
+        YankKind::Char
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -25,7 +27,9 @@ pub struct Registers {
 }
 
 impl Registers {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn set(&mut self, name: char, entry: RegisterEntry) {
         // Always mirror into unnamed register `"`.
@@ -36,7 +40,13 @@ impl Registers {
     }
 
     pub fn set_unnamed(&mut self, text: impl Into<String>, kind: YankKind) {
-        self.set('"', RegisterEntry { text: text.into(), kind });
+        self.set(
+            '"',
+            RegisterEntry {
+                text: text.into(),
+                kind,
+            },
+        );
     }
 
     pub fn get(&self, name: char) -> Option<&RegisterEntry> {
@@ -49,7 +59,10 @@ impl Registers {
         {
             if let Ok(mut cb) = arboard::Clipboard::new() {
                 if let Ok(text) = cb.get_text() {
-                    return Some(RegisterEntry { text, kind: YankKind::Char });
+                    return Some(RegisterEntry {
+                        text,
+                        kind: YankKind::Char,
+                    });
                 }
             }
         }
@@ -74,7 +87,13 @@ mod tests {
     #[test]
     fn unnamed_mirrors_named() {
         let mut r = Registers::new();
-        r.set('a', RegisterEntry { text: "hi".into(), kind: YankKind::Char });
+        r.set(
+            'a',
+            RegisterEntry {
+                text: "hi".into(),
+                kind: YankKind::Char,
+            },
+        );
         assert_eq!(r.get('a').unwrap().text, "hi");
         assert_eq!(r.get('"').unwrap().text, "hi");
     }

@@ -74,11 +74,7 @@ fn parse_rope(parser: &mut Parser, text: &Rope, old: Option<&Tree>) -> Option<Tr
 }
 
 /// Run a tree-sitter query against `tree` and return raw spans.
-pub fn highlight_spans(
-    tree: &Tree,
-    query: &Query,
-    source: &[u8],
-) -> Vec<(usize, usize, String)> {
+pub fn highlight_spans(tree: &Tree, query: &Query, source: &[u8]) -> Vec<(usize, usize, String)> {
     let mut cursor = QueryCursor::new();
     let capture_names = query.capture_names();
     let mut out = Vec::new();
@@ -130,11 +126,7 @@ impl HighlightEngine {
         self.highlight_with_theme(buffer, &Theme::tokyo_night())
     }
 
-    pub fn highlight_with_theme(
-        &mut self,
-        buffer: &Buffer,
-        theme: &Theme,
-    ) -> Vec<HighlightSpan> {
+    pub fn highlight_with_theme(&mut self, buffer: &Buffer, theme: &Theme) -> Vec<HighlightSpan> {
         let lang_id = match self.ensure_highlighter(buffer) {
             Some(h) => h.language_id().to_string(),
             None => return Vec::new(),
@@ -193,12 +185,20 @@ mod tests {
         let kw = spans
             .iter()
             .find(|s| s.capture == "keyword" && s.start_byte == 0 && s.end_byte == 2);
-        assert!(kw.is_some(), "expected keyword 'fn' at 0..2; got {:?}", spans);
+        assert!(
+            kw.is_some(),
+            "expected keyword 'fn' at 0..2; got {:?}",
+            spans
+        );
 
         // Find a `function` span covering "main" at byte 3..7.
         let func = spans
             .iter()
             .find(|s| s.capture == "function" && s.start_byte == 3 && s.end_byte == 7);
-        assert!(func.is_some(), "expected function 'main' at 3..7; got {:?}", spans);
+        assert!(
+            func.is_some(),
+            "expected function 'main' at 3..7; got {:?}",
+            spans
+        );
     }
 }

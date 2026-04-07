@@ -193,7 +193,12 @@ impl DapSession {
     pub async fn threads(&mut self) -> Result<&[DapThread]> {
         let resp = Self::check(self.client.request("threads", None).await?)?;
         self.threads.clear();
-        if let Some(arr) = resp.body.as_ref().and_then(|b| b.get("threads")).and_then(|v| v.as_array()) {
+        if let Some(arr) = resp
+            .body
+            .as_ref()
+            .and_then(|b| b.get("threads"))
+            .and_then(|v| v.as_array())
+        {
             for t in arr {
                 self.threads.push(DapThread {
                     id: t.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -275,7 +280,10 @@ impl DapSession {
                         .get("variablesReference")
                         .and_then(|v| v.as_i64())
                         .unwrap_or(0),
-                    expensive: s.get("expensive").and_then(|v| v.as_bool()).unwrap_or(false),
+                    expensive: s
+                        .get("expensive")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                 });
             }
         }
@@ -300,8 +308,16 @@ impl DapSession {
         {
             for v in arr {
                 self.variables.push(Variable {
-                    name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    value: v.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    name: v
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    value: v
+                        .get("value")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     type_: v.get("type").and_then(|x| x.as_str()).map(String::from),
                     variables_reference: v
                         .get("variablesReference")

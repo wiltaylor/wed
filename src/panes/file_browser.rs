@@ -43,12 +43,22 @@ impl FileBrowserPane {
     pub fn refresh(&mut self) {
         self.entries.clear();
         let root = self.root.clone();
-        for entry in ignore::WalkBuilder::new(&root).hidden(false).build().flatten() {
+        for entry in ignore::WalkBuilder::new(&root)
+            .hidden(false)
+            .build()
+            .flatten()
+        {
             let depth = entry.depth();
             let path = entry.path().to_path_buf();
-            if path == root { continue; }
+            if path == root {
+                continue;
+            }
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            self.entries.push(FileEntry { path, depth, is_dir });
+            self.entries.push(FileEntry {
+                path,
+                depth,
+                is_dir,
+            });
         }
     }
 
@@ -57,7 +67,11 @@ impl FileBrowserPane {
         let mut skip_depth: Option<usize> = None;
         for e in &self.entries {
             if let Some(d) = skip_depth {
-                if e.depth > d { continue; } else { skip_depth = None; }
+                if e.depth > d {
+                    continue;
+                } else {
+                    skip_depth = None;
+                }
             }
             out.push(e);
             if e.is_dir && !self.expanded.contains(&e.path) {
@@ -73,10 +87,14 @@ impl FileBrowserPane {
 
     pub fn move_down(&mut self) {
         let len = self.visible().len();
-        if self.selected + 1 < len { self.selected += 1; }
+        if self.selected + 1 < len {
+            self.selected += 1;
+        }
     }
     pub fn move_up(&mut self) {
-        if self.selected > 0 { self.selected -= 1; }
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
     }
 
     pub fn activate(&mut self) {
@@ -93,12 +111,16 @@ impl FileBrowserPane {
         }
     }
 
-    pub(crate) fn _root_ref(&self) -> &Path { &self.root }
+    pub(crate) fn _root_ref(&self) -> &Path {
+        &self.root
+    }
 }
 
 #[async_trait]
 impl Pane for FileBrowserPane {
-    fn name(&self) -> &str { "file_browser" }
+    fn name(&self) -> &str {
+        "file_browser"
+    }
     fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),

@@ -94,11 +94,11 @@ impl App {
         };
         use crossterm::execute;
         use crossterm::terminal::{
-            EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+            disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
         };
         use futures::StreamExt;
-        use ratatui::Terminal;
         use ratatui::backend::CrosstermBackend;
+        use ratatui::Terminal;
 
         // Ctrl+C → Quit
         let tx_sig = self.event_tx.clone();

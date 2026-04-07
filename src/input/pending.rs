@@ -16,7 +16,9 @@ pub struct PendingState {
 }
 
 impl PendingState {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn push_digit(&mut self, d: u32) {
         let cur = self.count.unwrap_or(0);

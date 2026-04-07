@@ -17,7 +17,9 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub fn new(x: u16, y: u16, w: u16, h: u16) -> Self { Self { x, y, w, h } }
+    pub fn new(x: u16, y: u16, w: u16, h: u16) -> Self {
+        Self { x, y, w, h }
+    }
     pub fn contains(&self, x: u16, y: u16) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
     }
@@ -68,7 +70,9 @@ pub fn route_mouse(rects: &LayoutRects, ev: MouseEvent) -> MouseAction {
         MouseEventKind::Down(MouseButton::Left) => {
             if rects.tabline.contains(x, y) {
                 for (i, r) in rects.tab_labels.iter().enumerate() {
-                    if r.contains(x, y) { return MouseAction::TabGoto(i); }
+                    if r.contains(x, y) {
+                        return MouseAction::TabGoto(i);
+                    }
                 }
                 return MouseAction::None;
             }
@@ -76,14 +80,21 @@ pub fn route_mouse(rects: &LayoutRects, ev: MouseEvent) -> MouseAction {
                 return MouseAction::StatuslineClick;
             }
             if rects.left_sidebar.contains(x, y) {
-                return MouseAction::SidebarLeftClick { line: y - rects.left_sidebar.y };
+                return MouseAction::SidebarLeftClick {
+                    line: y - rects.left_sidebar.y,
+                };
             }
             if rects.right_sidebar.contains(x, y) {
-                return MouseAction::SidebarRightClick { line: y - rects.right_sidebar.y };
+                return MouseAction::SidebarRightClick {
+                    line: y - rects.right_sidebar.y,
+                };
             }
             for (i, v) in rects.views.iter().enumerate() {
                 if v.gutter.contains(x, y) {
-                    return MouseAction::ToggleBreakpoint { view: i, line: y - v.gutter.y };
+                    return MouseAction::ToggleBreakpoint {
+                        view: i,
+                        line: y - v.gutter.y,
+                    };
                 }
                 if v.text.contains(x, y) {
                     return MouseAction::CursorMove {
@@ -97,13 +108,17 @@ pub fn route_mouse(rects: &LayoutRects, ev: MouseEvent) -> MouseAction {
         }
         MouseEventKind::ScrollUp => {
             for (i, v) in rects.views.iter().enumerate() {
-                if v.area.contains(x, y) { return MouseAction::ScrollUp { view: i }; }
+                if v.area.contains(x, y) {
+                    return MouseAction::ScrollUp { view: i };
+                }
             }
             MouseAction::None
         }
         MouseEventKind::ScrollDown => {
             for (i, v) in rects.views.iter().enumerate() {
-                if v.area.contains(x, y) { return MouseAction::ScrollDown { view: i }; }
+                if v.area.contains(x, y) {
+                    return MouseAction::ScrollDown { view: i };
+                }
             }
             MouseAction::None
         }
@@ -125,7 +140,12 @@ mod tests {
     use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 
     fn ev(kind: MouseEventKind, x: u16, y: u16) -> MouseEvent {
-        MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::empty() }
+        MouseEvent {
+            kind,
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::empty(),
+        }
     }
 
     #[test]
@@ -150,7 +170,14 @@ mod tests {
             ..Default::default()
         };
         let action = route_mouse(&rects, ev(MouseEventKind::Down(MouseButton::Left), 10, 5));
-        assert_eq!(action, MouseAction::CursorMove { view: 0, line: 4, col: 6 });
+        assert_eq!(
+            action,
+            MouseAction::CursorMove {
+                view: 0,
+                line: 4,
+                col: 6
+            }
+        );
     }
 
     #[test]

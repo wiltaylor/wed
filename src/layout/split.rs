@@ -16,9 +16,17 @@ pub enum Direction {
 pub enum SplitNode {
     Leaf(View),
     /// Side-by-side split. `ratio` is the fraction of width given to `left`.
-    Horizontal { ratio: f32, left: Box<SplitNode>, right: Box<SplitNode> },
+    Horizontal {
+        ratio: f32,
+        left: Box<SplitNode>,
+        right: Box<SplitNode>,
+    },
     /// Stacked split. `ratio` is the fraction of height given to `top`.
-    Vertical { ratio: f32, top: Box<SplitNode>, bottom: Box<SplitNode> },
+    Vertical {
+        ratio: f32,
+        top: Box<SplitNode>,
+        bottom: Box<SplitNode>,
+    },
 }
 
 impl Default for SplitNode {
@@ -31,7 +39,12 @@ impl SplitNode {
     /// Split the currently active leaf in the given direction. The active view is
     /// duplicated into the new pane and `new_id` becomes the id of the freshly
     /// created sibling. Returns the id of the new view if a split happened.
-    pub fn split_active(&mut self, active: ViewId, direction: Direction, new_id: ViewId) -> Option<ViewId> {
+    pub fn split_active(
+        &mut self,
+        active: ViewId,
+        direction: Direction,
+        new_id: ViewId,
+    ) -> Option<ViewId> {
         // find leaf and replace in place
         let path = self.path_to(active)?;
         let leaf = self.get_mut_by_path(&path);
@@ -91,10 +104,18 @@ impl SplitNode {
         let parent = self.get_mut_by_path(parent_path);
         let replacement = match std::mem::take(parent) {
             SplitNode::Horizontal { left, right, .. } => {
-                if last == 0 { *right } else { *left }
+                if last == 0 {
+                    *right
+                } else {
+                    *left
+                }
             }
             SplitNode::Vertical { top, bottom, .. } => {
-                if last == 0 { *bottom } else { *top }
+                if last == 0 {
+                    *bottom
+                } else {
+                    *top
+                }
             }
             other => other,
         };
@@ -142,7 +163,9 @@ impl SplitNode {
 
     /// Resize the split that contains `active` along its axis by `delta` (in ratio units).
     pub fn resize(&mut self, active: ViewId, delta: f32) -> bool {
-        let Some(path) = self.path_to(active) else { return false };
+        let Some(path) = self.path_to(active) else {
+            return false;
+        };
         if path.is_empty() {
             return false;
         }
@@ -209,7 +232,12 @@ impl SplitNode {
             SplitNode::Horizontal { ratio, left, right } => {
                 let lw = ((area.width as f32) * ratio).round() as u16;
                 let lw = lw.min(area.width.saturating_sub(1)).max(1);
-                let l = Rect { x: area.x, y: area.y, width: lw, height: area.height };
+                let l = Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: lw,
+                    height: area.height,
+                };
                 let r = Rect {
                     x: area.x + lw,
                     y: area.y,
@@ -222,7 +250,12 @@ impl SplitNode {
             SplitNode::Vertical { ratio, top, bottom } => {
                 let th = ((area.height as f32) * ratio).round() as u16;
                 let th = th.min(area.height.saturating_sub(1)).max(1);
-                let t = Rect { x: area.x, y: area.y, width: area.width, height: th };
+                let t = Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: area.width,
+                    height: th,
+                };
                 let b = Rect {
                     x: area.x,
                     y: area.y + th,
@@ -269,10 +302,18 @@ impl SplitNode {
         for &step in path {
             node = match node {
                 SplitNode::Horizontal { left, right, .. } => {
-                    if step == 0 { left.as_mut() } else { right.as_mut() }
+                    if step == 0 {
+                        left.as_mut()
+                    } else {
+                        right.as_mut()
+                    }
                 }
                 SplitNode::Vertical { top, bottom, .. } => {
-                    if step == 0 { top.as_mut() } else { bottom.as_mut() }
+                    if step == 0 {
+                        top.as_mut()
+                    } else {
+                        bottom.as_mut()
+                    }
                 }
                 SplitNode::Leaf(_) => return node,
             };
@@ -343,7 +384,10 @@ mod tests {
         root.split_active(ViewId(2), Direction::Down, ViewId(3));
         let rects = root.layout_rects(Rect::new(0, 0, 80, 24));
         assert_eq!(rects.len(), 3);
-        let total: u32 = rects.iter().map(|(_, r)| r.width as u32 * r.height as u32).sum();
+        let total: u32 = rects
+            .iter()
+            .map(|(_, r)| r.width as u32 * r.height as u32)
+            .sum();
         assert_eq!(total, 80 * 24);
         // No overlap & contiguous coverage check via union area sum equals total
     }

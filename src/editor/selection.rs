@@ -18,7 +18,11 @@ pub struct Selection {
 
 impl Default for Selection {
     fn default() -> Self {
-        Self { kind: SelectionKind::Char, anchor: Cursor::default(), head: Cursor::default() }
+        Self {
+            kind: SelectionKind::Char,
+            anchor: Cursor::default(),
+            head: Cursor::default(),
+        }
     }
 }
 
@@ -31,7 +35,11 @@ impl Selection {
     pub fn ordered(&self) -> ((usize, usize), (usize, usize)) {
         let a = (self.anchor.row, self.anchor.col);
         let h = (self.head.row, self.head.col);
-        if a <= h { (a, h) } else { (h, a) }
+        if a <= h {
+            (a, h)
+        } else {
+            (h, a)
+        }
     }
 }
 

@@ -97,7 +97,10 @@ mod tests {
     #[test]
     fn lookup_by_extension() {
         let reg = GrammarRegistry::global();
-        assert_eq!(reg.for_path(Path::new("foo.rs")).map(|e| e.id), Some("rust"));
+        assert_eq!(
+            reg.for_path(Path::new("foo.rs")).map(|e| e.id),
+            Some("rust")
+        );
         assert_eq!(
             reg.for_path(Path::new("foo.json")).map(|e| e.id),
             Some("json")

@@ -15,7 +15,9 @@ pub struct DapVariablesPane {
 }
 
 impl DapVariablesPane {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn set_variables(&mut self, variables: Vec<DapVariable>) {
         self.variables = variables;
         self.selected = 0;
@@ -24,5 +26,7 @@ impl DapVariablesPane {
 
 #[async_trait]
 impl Pane for DapVariablesPane {
-    fn name(&self) -> &str { "dap_variables" }
+    fn name(&self) -> &str {
+        "dap_variables"
+    }
 }

@@ -1,7 +1,7 @@
 use ratatui::style::{Color, Style};
 
-use crate::config::Theme;
 use crate::config::theme::parse_hex;
+use crate::config::Theme;
 
 fn color(s: &str) -> Color {
     parse_hex(s).unwrap_or(Color::Reset)

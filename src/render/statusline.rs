@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::app::App;
 use crate::input::EditorMode;
@@ -55,7 +55,10 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let left = vec![
         Span::styled(
             format!(" {mode_text} "),
-            Style::default().bg(mode_color).fg(Color::Black).add_modifier(Modifier::BOLD),
+            Style::default()
+                .bg(mode_color)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(file_name, Style::default().fg(Color::White)),

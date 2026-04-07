@@ -16,11 +16,18 @@ pub struct LspSymbolsPane {
 }
 
 impl LspSymbolsPane {
-    pub fn new() -> Self { Self::default() }
-    pub fn set_tree(&mut self, tree: Vec<SymbolNode>) { self.tree = tree; self.selected = 0; }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn set_tree(&mut self, tree: Vec<SymbolNode>) {
+        self.tree = tree;
+        self.selected = 0;
+    }
 }
 
 #[async_trait]
 impl Pane for LspSymbolsPane {
-    fn name(&self) -> &str { "lsp_symbols" }
+    fn name(&self) -> &str {
+        "lsp_symbols"
+    }
 }

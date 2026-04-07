@@ -13,7 +13,9 @@ pub struct CommandLineState {
 }
 
 impl CommandLineState {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn clear(&mut self) {
         self.input.clear();
@@ -31,7 +33,9 @@ impl CommandLineState {
     }
 
     pub fn backspace(&mut self) {
-        if self.cursor == 0 { return; }
+        if self.cursor == 0 {
+            return;
+        }
         // Remove the previous char (assuming ASCII for simplicity).
         let new_cursor = self.input[..self.cursor]
             .char_indices()
@@ -43,7 +47,9 @@ impl CommandLineState {
     }
 
     pub fn move_left(&mut self) {
-        if self.cursor == 0 { return; }
+        if self.cursor == 0 {
+            return;
+        }
         let new = self.input[..self.cursor]
             .char_indices()
             .last()
@@ -53,14 +59,18 @@ impl CommandLineState {
     }
 
     pub fn move_right(&mut self) {
-        if self.cursor >= self.input.len() { return; }
+        if self.cursor >= self.input.len() {
+            return;
+        }
         if let Some((_, c)) = self.input[self.cursor..].char_indices().next() {
             self.cursor += c.len_utf8();
         }
     }
 
     pub fn history_prev(&mut self) {
-        if self.history.is_empty() { return; }
+        if self.history.is_empty() {
+            return;
+        }
         let idx = match self.history_pos {
             None => self.history.len() - 1,
             Some(0) => 0,
@@ -90,16 +100,25 @@ impl CommandLineState {
     pub fn complete(&mut self, registry: &CommandRegistry) {
         if self.completions.is_empty() {
             // Compute completions over the leading word (command name).
-            let word: String = self.input.chars().take_while(|c| !c.is_whitespace()).collect();
+            let word: String = self
+                .input
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
             self.completions = registry.complete(&word);
-            if self.completions.is_empty() { return; }
+            if self.completions.is_empty() {
+                return;
+            }
             self.completion_idx = Some(0);
         } else if let Some(i) = self.completion_idx {
             self.completion_idx = Some((i + 1) % self.completions.len());
         }
         if let Some(i) = self.completion_idx {
             // Replace the leading word with the completion.
-            let rest_start = self.input.find(char::is_whitespace).unwrap_or(self.input.len());
+            let rest_start = self
+                .input
+                .find(char::is_whitespace)
+                .unwrap_or(self.input.len());
             let rest = self.input[rest_start..].to_string();
             self.input = format!("{}{}", self.completions[i], rest);
             self.cursor = self.input.len();
@@ -107,7 +126,11 @@ impl CommandLineState {
     }
 
     /// Parse the current input and execute it.
-    pub fn accept(&mut self, registry: &CommandRegistry, ctx: &mut CommandContext) -> CommandResult {
+    pub fn accept(
+        &mut self,
+        registry: &CommandRegistry,
+        ctx: &mut CommandContext,
+    ) -> CommandResult {
         let line = std::mem::take(&mut self.input);
         self.cursor = 0;
         self.completions.clear();
@@ -130,10 +153,10 @@ pub struct ParsedCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Range {
-    Whole,                   // `%`
-    Current,                 // `.`
-    Line(i64),               // numeric absolute
-    Relative(i64),           // `.,+5` second part etc.
+    Whole,         // `%`
+    Current,       // `.`
+    Line(i64),     // numeric absolute
+    Relative(i64), // `.,+5` second part etc.
     Pair(Box<Range>, Box<Range>),
 }
 
@@ -166,7 +189,11 @@ pub fn parse_command_line(line: &str) -> anyhow::Result<ParsedCommand> {
 
     let (cmd, mut extra_args) = expand_alias(head);
     extra_args.extend(rest);
-    Ok(ParsedCommand { command: cmd.to_string(), args: extra_args, range: None })
+    Ok(ParsedCommand {
+        command: cmd.to_string(),
+        args: extra_args,
+        range: None,
+    })
 }
 
 /// Map vim aliases to canonical command names. Returns the canonical
@@ -203,15 +230,23 @@ fn parse_substitute(line: &str) -> anyhow::Result<Option<ParsedCommand>> {
     // Range prefix
     let (range, rest_idx) = parse_range_prefix(line);
     let rest = &line[rest_idx..];
-    if !rest.starts_with('s') { return Ok(None); }
+    if !rest.starts_with('s') {
+        return Ok(None);
+    }
     let after_s = &rest[1..];
     let delim = after_s.chars().next();
-    let Some(delim) = delim else { return Ok(None); };
-    if !"/#|,!".contains(delim) { return Ok(None); }
+    let Some(delim) = delim else {
+        return Ok(None);
+    };
+    if !"/#|,!".contains(delim) {
+        return Ok(None);
+    }
     // Split on delim. Allow escaped delimiter? Keep simple for now.
     let body = &after_s[delim.len_utf8()..];
     let parts: Vec<&str> = body.splitn(3, delim).collect();
-    if parts.len() < 2 { return Ok(None); }
+    if parts.len() < 2 {
+        return Ok(None);
+    }
     let pat = parts[0].to_string();
     let repl = parts[1].to_string();
     let flags = parts.get(2).copied().unwrap_or("").to_string();
@@ -232,19 +267,33 @@ fn parse_substitute(line: &str) -> anyhow::Result<Option<ParsedCommand>> {
 /// and the byte index where the rest of the line starts.
 pub fn parse_range_prefix(line: &str) -> (Option<Range>, usize) {
     let bytes = line.as_bytes();
-    if bytes.is_empty() { return (None, 0); }
+    if bytes.is_empty() {
+        return (None, 0);
+    }
     // `%`
-    if bytes[0] == b'%' { return (Some(Range::Whole), 1); }
+    if bytes[0] == b'%' {
+        return (Some(Range::Whole), 1);
+    }
     // `.` (possibly followed by `,+N`)
     if bytes[0] == b'.' {
         // `.,+5` style
         if bytes.len() >= 2 && bytes[1] == b',' {
             // Find next non-numeric/sign char
             let mut i = 2;
-            if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') { i += 1; }
-            while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
+            if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+                i += 1;
+            }
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
             let off: i64 = line[2..i].parse().unwrap_or(0);
-            return (Some(Range::Pair(Box::new(Range::Current), Box::new(Range::Relative(off)))), i);
+            return (
+                Some(Range::Pair(
+                    Box::new(Range::Current),
+                    Box::new(Range::Relative(off)),
+                )),
+                i,
+            );
         }
         return (Some(Range::Current), 1);
     }

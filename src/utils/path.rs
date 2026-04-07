@@ -3,12 +3,17 @@ use std::path::{Path, PathBuf};
 
 /// Return `path` relative to `base` if possible, else clone `path`.
 pub fn relative_to(path: &Path, base: &Path) -> PathBuf {
-    path.strip_prefix(base).map(|p| p.to_path_buf()).unwrap_or_else(|_| path.to_path_buf())
+    path.strip_prefix(base)
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Return the file name as a String, or empty string if none.
 pub fn file_name_string(path: &Path) -> String {
-    path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()).unwrap_or_default()
+    path.file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
 }
 
 /// Normalize path to a forward-slashed display string.

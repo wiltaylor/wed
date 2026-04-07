@@ -10,6 +10,10 @@ pub struct Tab {
 
 impl Tab {
     pub fn new(name: impl Into<String>, root: SplitNode, active_view: ViewId) -> Self {
-        Self { name: name.into(), root, active_view }
+        Self {
+            name: name.into(),
+            root,
+            active_view,
+        }
     }
 }

@@ -32,7 +32,10 @@ impl Default for GitPane {
 
 impl GitPane {
     pub fn new(root: PathBuf) -> Self {
-        let mut me = Self { root, status: GitStatusSummary::default() };
+        let mut me = Self {
+            root,
+            status: GitStatusSummary::default(),
+        };
         me.refresh();
         me
     }
@@ -69,10 +72,7 @@ pub fn read_status(root: &Path) -> Option<GitStatusSummary> {
             entry.staged = true;
             summary.staged += 1;
         }
-        if st.is_wt_modified()
-            || st.is_wt_deleted()
-            || st.is_wt_renamed()
-            || st.is_wt_typechange()
+        if st.is_wt_modified() || st.is_wt_deleted() || st.is_wt_renamed() || st.is_wt_typechange()
         {
             entry.unstaged = true;
             summary.unstaged += 1;
@@ -88,7 +88,9 @@ pub fn read_status(root: &Path) -> Option<GitStatusSummary> {
 
 #[async_trait]
 impl Pane for GitPane {
-    fn name(&self) -> &str { "git" }
+    fn name(&self) -> &str {
+        "git"
+    }
 }
 
 #[cfg(test)]
@@ -107,6 +109,9 @@ mod tests {
         fs::write(dir.path().join("new.txt"), "hi").unwrap();
         let summary = read_status(dir.path()).unwrap();
         assert!(summary.untracked >= 1);
-        assert!(summary.entries.iter().any(|e| e.path == "new.txt" && e.untracked));
+        assert!(summary
+            .entries
+            .iter()
+            .any(|e| e.path == "new.txt" && e.untracked));
     }
 }

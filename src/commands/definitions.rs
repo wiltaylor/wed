@@ -35,39 +35,55 @@ pub fn register_editor_commands(reg: &mut CommandRegistry) {
     // is the canonical path; these exist so `:`-commands and config
     // bindings can resolve them.
     macro_rules! cmd {
-        ($name:literal, $f:expr) => { reg.register($name, $f); };
+        ($name:literal, $f:expr) => {
+            reg.register($name, $f);
+        };
     }
-    cmd!("cursor.move_left",   |_ctx, _| Ok(()));
-    cmd!("cursor.move_right",  |_ctx, _| Ok(()));
-    cmd!("cursor.move_up",     |_ctx, _| Ok(()));
-    cmd!("cursor.move_down",   |_ctx, _| Ok(()));
-    cmd!("cursor.word_forward",  |_ctx, _| Ok(()));
+    cmd!("cursor.move_left", |_ctx, _| Ok(()));
+    cmd!("cursor.move_right", |_ctx, _| Ok(()));
+    cmd!("cursor.move_up", |_ctx, _| Ok(()));
+    cmd!("cursor.move_down", |_ctx, _| Ok(()));
+    cmd!("cursor.word_forward", |_ctx, _| Ok(()));
     cmd!("cursor.word_backward", |_ctx, _| Ok(()));
-    cmd!("cursor.line_start",  |_ctx, _| Ok(()));
-    cmd!("cursor.line_end",    |_ctx, _| Ok(()));
-    cmd!("cursor.buffer_top",  |_ctx, _| Ok(()));
+    cmd!("cursor.line_start", |_ctx, _| Ok(()));
+    cmd!("cursor.line_end", |_ctx, _| Ok(()));
+    cmd!("cursor.buffer_top", |_ctx, _| Ok(()));
     cmd!("cursor.buffer_bottom", |_ctx, _| Ok(()));
     // `cursor.goto_line` is registered by `register_app_commands` already.
 
-    cmd!("edit.undo",          |ctx, _| { if let Some(b) = ctx.buffers.first_mut() { b.undo(); } Ok(()) });
-    cmd!("edit.redo",          |ctx, _| { if let Some(b) = ctx.buffers.first_mut() { b.redo(); } Ok(()) });
-    cmd!("edit.yank",          |_ctx, _| Ok(()));
-    cmd!("edit.paste_after",   |_ctx, _| Ok(()));
-    cmd!("edit.paste_before",  |_ctx, _| Ok(()));
-    cmd!("edit.delete_line",   |ctx, _| {
+    cmd!("edit.undo", |ctx, _| {
+        if let Some(b) = ctx.buffers.first_mut() {
+            b.undo();
+        }
+        Ok(())
+    });
+    cmd!("edit.redo", |ctx, _| {
+        if let Some(b) = ctx.buffers.first_mut() {
+            b.redo();
+        }
+        Ok(())
+    });
+    cmd!("edit.yank", |_ctx, _| Ok(()));
+    cmd!("edit.paste_after", |_ctx, _| Ok(()));
+    cmd!("edit.paste_before", |_ctx, _| Ok(()));
+    cmd!("edit.delete_line", |ctx, _| {
         if let Some(b) = ctx.buffers.first_mut() {
             if b.line_count() > 0 {
                 use crate::editor::buffer::Point;
                 let from = b.point_to_byte(Point { row: 0, col: 0 });
-                let to = if b.line_count() > 1 { b.point_to_byte(Point { row: 1, col: 0 }) } else { b.len_bytes() };
+                let to = if b.line_count() > 1 {
+                    b.point_to_byte(Point { row: 1, col: 0 })
+                } else {
+                    b.len_bytes()
+                };
                 b.delete(from..to);
             }
         }
         Ok(())
     });
-    cmd!("edit.change_line",   |_ctx, _| Ok(()));
-    cmd!("edit.indent",        |_ctx, _| Ok(()));
-    cmd!("edit.dedent",        |_ctx, _| Ok(()));
+    cmd!("edit.change_line", |_ctx, _| Ok(()));
+    cmd!("edit.indent", |_ctx, _| Ok(()));
+    cmd!("edit.dedent", |_ctx, _| Ok(()));
     cmd!("edit.comment_toggle", |ctx, _| {
         if let Some(b) = ctx.buffers.first_mut() {
             let cs = crate::editor::ops::comment_string_for(b.language_id.as_deref());
@@ -76,36 +92,83 @@ pub fn register_editor_commands(reg: &mut CommandRegistry) {
         Ok(())
     });
 
-    cmd!("mode.normal",            |ctx, _| { *ctx.mode = crate::input::EditorMode::Normal; Ok(()) });
-    cmd!("mode.insert",            |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.insert_line_start", |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.append",            |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.append_line_end",   |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.open_below",        |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.open_above",        |ctx, _| { *ctx.mode = crate::input::EditorMode::Insert; Ok(()) });
-    cmd!("mode.visual",            |ctx, _| { *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Char); Ok(()) });
-    cmd!("mode.visual_line",       |ctx, _| { *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Line); Ok(()) });
-    cmd!("mode.visual_block",      |ctx, _| { *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Block); Ok(()) });
-    cmd!("mode.replace",           |ctx, _| { *ctx.mode = crate::input::EditorMode::Replace; Ok(()) });
+    cmd!("mode.normal", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Normal;
+        Ok(())
+    });
+    cmd!("mode.insert", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.insert_line_start", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.append", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.append_line_end", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.open_below", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.open_above", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Insert;
+        Ok(())
+    });
+    cmd!("mode.visual", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Char);
+        Ok(())
+    });
+    cmd!("mode.visual_line", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Line);
+        Ok(())
+    });
+    cmd!("mode.visual_block", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Visual(crate::input::mode::VisualKind::Block);
+        Ok(())
+    });
+    cmd!("mode.replace", |ctx, _| {
+        *ctx.mode = crate::input::EditorMode::Replace;
+        Ok(())
+    });
 
     // buffer.save / open already registered by register_app_commands.
     cmd!("buffer.save_all", |ctx, _| {
-        for b in ctx.buffers.iter_mut() { let _ = b.save(); }
+        for b in ctx.buffers.iter_mut() {
+            let _ = b.save();
+        }
         Ok(())
     });
-    cmd!("buffer.close",  |_ctx, _| Ok(()));
-    cmd!("buffer.new",    |ctx, _| { ctx.buffers.push(crate::editor::Buffer::default()); Ok(()) });
-    cmd!("buffer.next",   |_ctx, _| Ok(()));
-    cmd!("buffer.prev",   |_ctx, _| Ok(()));
+    cmd!("buffer.close", |_ctx, _| Ok(()));
+    cmd!("buffer.new", |ctx, _| {
+        ctx.buffers.push(crate::editor::Buffer::default());
+        Ok(())
+    });
+    cmd!("buffer.next", |_ctx, _| Ok(()));
+    cmd!("buffer.prev", |_ctx, _| Ok(()));
 
-    let _ = motions::left::<>; // keep `motions` referenced for lints
+    let _ = motions::left; // keep `motions` referenced for lints
     let _ = Cursor::default();
 }
 
 pub fn register_app_commands(reg: &mut CommandRegistry) {
-    reg.register("app.quit", |ctx, _| { *ctx.quit = true; Ok(()) });
-    reg.register("app.quit_all", |ctx, _| { *ctx.quit = true; Ok(()) });
-    reg.register("app.write_quit", |ctx, _| { *ctx.quit = true; Ok(()) });
+    reg.register("app.quit", |ctx, _| {
+        *ctx.quit = true;
+        Ok(())
+    });
+    reg.register("app.quit_all", |ctx, _| {
+        *ctx.quit = true;
+        Ok(())
+    });
+    reg.register("app.write_quit", |ctx, _| {
+        *ctx.quit = true;
+        Ok(())
+    });
     reg.register("app.reload_config", |_ctx, _| Ok(()));
     reg.register("app.open_config", |_ctx, _| Ok(()));
     reg.register("buffer.save", |_ctx, _| Ok(()));

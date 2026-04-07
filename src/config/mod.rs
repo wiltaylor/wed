@@ -118,7 +118,10 @@ filetypes = ["rust"]
         assert_eq!(cfg.lsp["rust"].command, "rust-analyzer");
         let kb = cfg.build_keybindings().unwrap();
         // jk should resolve in normal mode
-        let seq = vec![crate::input::keys::Key::Char('j'), crate::input::keys::Key::Char('k')];
+        let seq = vec![
+            crate::input::keys::Key::Char('j'),
+            crate::input::keys::Key::Char('k'),
+        ];
         match kb.resolve(crate::input::EditorMode::Normal, &seq) {
             Resolution::Match(c) => assert_eq!(c.command, "mode.normal"),
             other => panic!("expected match, got {other:?}"),

@@ -92,10 +92,7 @@ impl BreakpointStore {
 
     /// Get the breakpoints for a file.
     pub fn get(&self, file: &Path) -> &[Breakpoint] {
-        self.files
-            .get(file)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+        self.files.get(file).map(|v| v.as_slice()).unwrap_or(&[])
     }
 }
 

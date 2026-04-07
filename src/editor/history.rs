@@ -29,7 +29,9 @@ pub struct History {
 }
 
 impl History {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Begin a new batch (e.g. entering insert mode).
     pub fn begin_batch(&mut self) {
@@ -70,8 +72,12 @@ impl History {
         Some(b)
     }
 
-    pub fn can_undo(&self) -> bool { !self.undo.is_empty() || self.open.as_ref().map_or(false, |b| !b.ops.is_empty()) }
-    pub fn can_redo(&self) -> bool { !self.redo.is_empty() }
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty() || self.open.as_ref().map_or(false, |b| !b.ops.is_empty())
+    }
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -79,7 +85,13 @@ mod tests {
     use super::*;
 
     fn op(s: usize, rem: &str, ins: &str) -> EditOp {
-        EditOp { start: s, removed: rem.into(), inserted: ins.into(), cursor_before: s, cursor_after: s + ins.len() }
+        EditOp {
+            start: s,
+            removed: rem.into(),
+            inserted: ins.into(),
+            cursor_before: s,
+            cursor_after: s + ins.len(),
+        }
     }
 
     #[test]

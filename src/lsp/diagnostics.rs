@@ -30,7 +30,10 @@ impl DiagnosticStore {
     }
 
     pub fn total(&self) -> usize {
-        self.per_uri.values().map(|v: &Vec<Diagnostic>| v.len()).sum()
+        self.per_uri
+            .values()
+            .map(|v: &Vec<Diagnostic>| v.len())
+            .sum()
     }
 }
 

@@ -12,7 +12,13 @@ pub struct SearchState {
 }
 
 impl Default for SearchState {
-    fn default() -> Self { Self { pattern: String::new(), regex: None, forward: true } }
+    fn default() -> Self {
+        Self {
+            pattern: String::new(),
+            regex: None,
+            forward: true,
+        }
+    }
 }
 
 impl SearchState {
@@ -27,7 +33,10 @@ impl SearchState {
 pub fn search_next(buf: &Buffer, state: &SearchState, cur: Cursor) -> Option<Cursor> {
     let re = state.regex.as_ref()?;
     let text = buf.rope.to_string();
-    let start_byte = buf.point_to_byte(crate::editor::buffer::Point { row: cur.row, col: cur.col });
+    let start_byte = buf.point_to_byte(crate::editor::buffer::Point {
+        row: cur.row,
+        col: cur.col,
+    });
     let after = (start_byte + 1).min(text.len());
     if let Some(m) = re.find_at(&text, after) {
         let p = buf.byte_to_point(m.start());
@@ -45,11 +54,17 @@ pub fn search_next(buf: &Buffer, state: &SearchState, cur: Cursor) -> Option<Cur
 pub fn search_prev(buf: &Buffer, state: &SearchState, cur: Cursor) -> Option<Cursor> {
     let re = state.regex.as_ref()?;
     let text = buf.rope.to_string();
-    let here_byte = buf.point_to_byte(crate::editor::buffer::Point { row: cur.row, col: cur.col });
+    let here_byte = buf.point_to_byte(crate::editor::buffer::Point {
+        row: cur.row,
+        col: cur.col,
+    });
     let mut last = None;
     for m in re.find_iter(&text) {
-        if m.start() < here_byte { last = Some(m.start()); }
-        else { break; }
+        if m.start() < here_byte {
+            last = Some(m.start());
+        } else {
+            break;
+        }
     }
     let pos = last.or_else(|| re.find_iter(&text).last().map(|m| m.start()))?;
     let p = buf.byte_to_point(pos);

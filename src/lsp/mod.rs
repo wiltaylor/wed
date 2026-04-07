@@ -26,13 +26,14 @@ use lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams,
     InitializeResult, InitializedParams, InlayHint, InlayHintParams, Location, Position,
     PublishDiagnosticsParams, Range, ReferenceContext, ReferenceParams, RenameParams,
-    SemanticTokensParams, SemanticTokensResult, SignatureHelp, SignatureHelpParams, TextDocumentContentChangeEvent,
-    TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams, TextEdit, Uri,
-    VersionedTextDocumentIdentifier, WorkspaceEdit, WorkspaceFolder,
+    SemanticTokensParams, SemanticTokensResult, SignatureHelp, SignatureHelpParams,
+    TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, TextEdit, Uri, VersionedTextDocumentIdentifier, WorkspaceEdit,
+    WorkspaceFolder,
 };
-use std::str::FromStr;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
+use std::str::FromStr;
 use tokio::sync::mpsc;
 
 use crate::app::{AppEvent, RequestId, ServerId};
@@ -249,7 +250,11 @@ impl LspManager {
         }
     }
 
-    pub async fn completion(&mut self, uri: Uri, pos: Position) -> Result<Option<CompletionResponse>> {
+    pub async fn completion(
+        &mut self,
+        uri: Uri,
+        pos: Position,
+    ) -> Result<Option<CompletionResponse>> {
         let req_id = self.alloc_request_id();
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
@@ -261,7 +266,10 @@ impl LspManager {
             context: None,
         };
         let r: Option<CompletionResponse> = client
-            .request(<lsp_types::request::Completion as LspRequest>::METHOD, params)
+            .request(
+                <lsp_types::request::Completion as LspRequest>::METHOD,
+                params,
+            )
             .await?;
         self.post(AppEvent::LspCompletion { request: req_id });
         Ok(r)
@@ -277,7 +285,10 @@ impl LspManager {
             work_done_progress_params: Default::default(),
         };
         let r: Option<Hover> = client
-            .request(<lsp_types::request::HoverRequest as LspRequest>::METHOD, params)
+            .request(
+                <lsp_types::request::HoverRequest as LspRequest>::METHOD,
+                params,
+            )
             .await?;
         self.post(AppEvent::LspHover { request: req_id });
         Ok(r)
@@ -345,7 +356,10 @@ impl LspManager {
             },
         };
         let r: Option<Vec<Location>> = client
-            .request(<lsp_types::request::References as LspRequest>::METHOD, params)
+            .request(
+                <lsp_types::request::References as LspRequest>::METHOD,
+                params,
+            )
             .await?;
         self.post(AppEvent::LspReferences { request: req_id });
         Ok(r)
@@ -403,7 +417,12 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn format(&self, uri: Uri, tab_size: u32, insert_spaces: bool) -> Result<Option<Vec<TextEdit>>> {
+    pub async fn format(
+        &self,
+        uri: Uri,
+        tab_size: u32,
+        insert_spaces: bool,
+    ) -> Result<Option<Vec<TextEdit>>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
         };
@@ -461,10 +480,7 @@ impl LspManager {
         Ok(r)
     }
 
-    pub async fn semantic_tokens_full(
-        &self,
-        uri: Uri,
-    ) -> Result<Option<SemanticTokensResult>> {
+    pub async fn semantic_tokens_full(&self, uri: Uri) -> Result<Option<SemanticTokensResult>> {
         let Some(client) = self.any_client().cloned() else {
             return Ok(None);
         };

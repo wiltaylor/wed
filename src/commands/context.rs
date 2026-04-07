@@ -41,7 +41,15 @@ impl<'a> CommandContext<'a> {
         event_tx: &'a UnboundedSender<AppEvent>,
         quit: &'a mut bool,
     ) -> Self {
-        Self { buffers, layout, mode, config, event_tx, quit, count: 1 }
+        Self {
+            buffers,
+            layout,
+            mode,
+            config,
+            event_tx,
+            quit,
+            count: 1,
+        }
     }
 }
 

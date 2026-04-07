@@ -46,5 +46,7 @@ pub enum EditorMode {
 }
 
 impl Default for EditorMode {
-    fn default() -> Self { EditorMode::Normal }
+    fn default() -> Self {
+        EditorMode::Normal
+    }
 }

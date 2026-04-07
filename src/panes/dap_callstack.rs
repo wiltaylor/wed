@@ -15,7 +15,9 @@ pub struct DapCallStackPane {
 }
 
 impl DapCallStackPane {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn set_frames(&mut self, frames: Vec<StackFrame>) {
         self.frames = frames;
         self.selected = 0;
@@ -27,5 +29,7 @@ pub type DapCallstackPane = DapCallStackPane;
 
 #[async_trait]
 impl Pane for DapCallStackPane {
-    fn name(&self) -> &str { "dap_callstack" }
+    fn name(&self) -> &str {
+        "dap_callstack"
+    }
 }

@@ -22,7 +22,9 @@ pub struct CommandRegistry {
 }
 
 impl CommandRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn register<F>(&mut self, name: impl Into<String>, f: F)
     where
@@ -79,6 +81,9 @@ mod tests {
         assert!(quit);
 
         let comps = reg.complete("app.");
-        assert_eq!(comps, vec!["app.quit".to_string(), "app.write_quit".to_string()]);
+        assert_eq!(
+            comps,
+            vec!["app.quit".to_string(), "app.write_quit".to_string()]
+        );
     }
 }

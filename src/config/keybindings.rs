@@ -15,10 +15,16 @@ pub struct BoundCommand {
 
 impl BoundCommand {
     pub fn new(command: impl Into<String>) -> Self {
-        Self { command: command.into(), args: Vec::new() }
+        Self {
+            command: command.into(),
+            args: Vec::new(),
+        }
     }
     pub fn with_args(command: impl Into<String>, args: Vec<String>) -> Self {
-        Self { command: command.into(), args }
+        Self {
+            command: command.into(),
+            args,
+        }
     }
 }
 
@@ -36,7 +42,10 @@ impl KeyTrie {
             self.command = Some(cmd);
             return;
         }
-        self.children.entry(keys[0]).or_default().insert(&keys[1..], cmd);
+        self.children
+            .entry(keys[0])
+            .or_default()
+            .insert(&keys[1..], cmd);
     }
 
     pub fn get(&self, keys: &[Key]) -> Resolution {
@@ -86,7 +95,9 @@ pub enum ModeKey {
 impl ModeKey {
     pub fn from_mode(m: EditorMode) -> Self {
         match m {
-            EditorMode::Normal | EditorMode::Pending(_) | EditorMode::Operator(_) => ModeKey::Normal,
+            EditorMode::Normal | EditorMode::Pending(_) | EditorMode::Operator(_) => {
+                ModeKey::Normal
+            }
             EditorMode::Insert => ModeKey::Insert,
             EditorMode::Visual(_) => ModeKey::Visual,
             EditorMode::Command => ModeKey::Command,
@@ -109,7 +120,11 @@ impl ModeKey {
 
 impl Keybindings {
     pub fn new() -> Self {
-        Self { per_mode: HashMap::new(), leader: KeyTrie::default(), leader_key: Key::Char(' ') }
+        Self {
+            per_mode: HashMap::new(),
+            leader: KeyTrie::default(),
+            leader_key: Key::Char(' '),
+        }
     }
 
     pub fn bind(&mut self, mode: ModeKey, keys_str: &str, cmd: BoundCommand) -> Result<(), String> {
@@ -125,7 +140,10 @@ impl Keybindings {
         // Also bind in normal mode as <leader>...
         let mut full = vec![self.leader_key];
         full.extend(keys);
-        self.per_mode.entry(ModeKey::Normal).or_default().insert(&full, cmd);
+        self.per_mode
+            .entry(ModeKey::Normal)
+            .or_default()
+            .insert(&full, cmd);
         Ok(())
     }
 
@@ -245,7 +263,11 @@ pub struct KeybindingConfig {
 #[serde(untagged)]
 pub enum BindingValue {
     Simple(String),
-    Detailed { command: String, #[serde(default)] args: Vec<String> },
+    Detailed {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
 }
 
 impl BindingValue {
@@ -331,15 +353,34 @@ fn next_token_end(s: &str) -> usize {
             let mut end = prefix.len();
             while end < bytes.len() {
                 let b = bytes[end];
-                if b.is_ascii_alphanumeric() || b == b'-' { end += 1; } else { break; }
+                if b.is_ascii_alphanumeric() || b == b'-' {
+                    end += 1;
+                } else {
+                    break;
+                }
             }
             return end;
         }
     }
     // Named key (escape, enter, tab, space, backspace, F1..F12)
-    let named = ["escape", "enter", "tab", "space", "backspace", "delete",
-                 "insert", "home", "end", "pageup", "pagedown",
-                 "up", "down", "left", "right", "null"];
+    let named = [
+        "escape",
+        "enter",
+        "tab",
+        "space",
+        "backspace",
+        "delete",
+        "insert",
+        "home",
+        "end",
+        "pageup",
+        "pagedown",
+        "up",
+        "down",
+        "left",
+        "right",
+        "null",
+    ];
     for n in named {
         if s.len() >= n.len() && s[..n.len()].eq_ignore_ascii_case(n) {
             return n.len();
@@ -347,7 +388,9 @@ fn next_token_end(s: &str) -> usize {
     }
     if bytes.len() >= 2 && (bytes[0] == b'F' || bytes[0] == b'f') && bytes[1].is_ascii_digit() {
         let mut end = 2;
-        if bytes.len() > 2 && bytes[2].is_ascii_digit() { end = 3; }
+        if bytes.len() > 2 && bytes[2].is_ascii_digit() {
+            end = 3;
+        }
         return end;
     }
     // Single char
@@ -362,8 +405,12 @@ fn expand_token(tok: &str) -> Option<Vec<Key>> {
         // (joined by `-`) is a follow-up plain key sequence.
         let mut parts = rest.splitn(2, '-');
         let first = parts.next()?;
-        if first.len() != 1 { return None; }
-        let mut keys = vec![Key::Ctrl(first.chars().next().unwrap().to_ascii_lowercase())];
+        if first.len() != 1 {
+            return None;
+        }
+        let mut keys = vec![Key::Ctrl(
+            first.chars().next().unwrap().to_ascii_lowercase(),
+        )];
         if let Some(trailing) = parts.next() {
             // Recursively expand the trailing portion as its own sequence.
             // It might be `v`, `w-v`, `escape`, etc.
@@ -380,9 +427,13 @@ fn expand_token(tok: &str) -> Option<Vec<Key>> {
         return None;
     }
     if let Some(rest) = tok.strip_prefix("shift-") {
-        if let Some(k) = parse_function_key(rest) { return Some(vec![k]); }
+        if let Some(k) = parse_function_key(rest) {
+            return Some(vec![k]);
+        }
         if rest.len() == 1 {
-            return Some(vec![Key::Char(rest.chars().next().unwrap().to_ascii_uppercase())]);
+            return Some(vec![Key::Char(
+                rest.chars().next().unwrap().to_ascii_uppercase(),
+            )]);
         }
         return None;
     }
@@ -404,7 +455,9 @@ fn try_parse_token(tok: &str) -> Option<Key> {
         let first = parts.next()?;
         let _trailing = parts.next();
         if first.len() == 1 {
-            return Some(Key::Ctrl(first.chars().next().unwrap().to_ascii_lowercase()));
+            return Some(Key::Ctrl(
+                first.chars().next().unwrap().to_ascii_lowercase(),
+            ));
         }
         return None;
     }
@@ -416,13 +469,17 @@ fn try_parse_token(tok: &str) -> Option<Key> {
     }
     if let Some(rest) = tok.strip_prefix("shift-") {
         // shift-F11 → F(11), shift-X → Char(X uppercase)
-        if let Some(n) = parse_function_key(rest) { return Some(n); }
+        if let Some(n) = parse_function_key(rest) {
+            return Some(n);
+        }
         if rest.len() == 1 {
             return Some(Key::Char(rest.chars().next().unwrap().to_ascii_uppercase()));
         }
         return None;
     }
-    if let Some(k) = parse_function_key(tok) { return Some(k); }
+    if let Some(k) = parse_function_key(tok) {
+        return Some(k);
+    }
     Some(match tok.to_ascii_lowercase().as_str() {
         "escape" | "esc" => Key::Esc,
         "enter" | "return" | "cr" => Key::Enter,
@@ -445,8 +502,12 @@ fn try_parse_token(tok: &str) -> Option<Key> {
 
 fn parse_function_key(s: &str) -> Option<Key> {
     let bytes = s.as_bytes();
-    if bytes.len() < 2 { return None; }
-    if bytes[0] != b'F' && bytes[0] != b'f' { return None; }
+    if bytes.len() < 2 {
+        return None;
+    }
+    if bytes[0] != b'F' && bytes[0] != b'f' {
+        return None;
+    }
     let n: u8 = s[1..].parse().ok()?;
     Some(Key::F(n))
 }
@@ -469,27 +530,38 @@ mod tests {
     #[test]
     fn parse_simple() {
         let leader = Key::Char(' ');
-        assert_eq!(parse_key_sequence("gg", leader).unwrap(), vec![Key::Char('g'), Key::Char('g')]);
+        assert_eq!(
+            parse_key_sequence("gg", leader).unwrap(),
+            vec![Key::Char('g'), Key::Char('g')]
+        );
     }
 
     #[test]
     fn parse_escape() {
         let leader = Key::Char(' ');
-        assert_eq!(parse_key_sequence("escape", leader).unwrap(), vec![Key::Esc]);
+        assert_eq!(
+            parse_key_sequence("escape", leader).unwrap(),
+            vec![Key::Esc]
+        );
     }
 
     #[test]
     fn parse_function() {
         let leader = Key::Char(' ');
         assert_eq!(parse_key_sequence("F5", leader).unwrap(), vec![Key::F(5)]);
-        assert_eq!(parse_key_sequence("shift-F11", leader).unwrap(), vec![Key::F(11)]);
+        assert_eq!(
+            parse_key_sequence("shift-F11", leader).unwrap(),
+            vec![Key::F(11)]
+        );
     }
 
     #[test]
     fn parse_leader() {
         let leader = Key::Char(' ');
-        assert_eq!(parse_key_sequence("<leader>ff", leader).unwrap(),
-                   vec![Key::Char(' '), Key::Char('f'), Key::Char('f')]);
+        assert_eq!(
+            parse_key_sequence("<leader>ff", leader).unwrap(),
+            vec![Key::Char(' '), Key::Char('f'), Key::Char('f')]
+        );
     }
 
     #[test]
@@ -503,12 +575,19 @@ mod tests {
     #[test]
     fn trie_pending_then_match() {
         let mut kb = Keybindings::new();
-        kb.bind(ModeKey::Normal, "gg", BoundCommand::new("cursor.buffer_start")).unwrap();
+        kb.bind(
+            ModeKey::Normal,
+            "gg",
+            BoundCommand::new("cursor.buffer_start"),
+        )
+        .unwrap();
         let g = vec![Key::Char('g')];
         let gg = vec![Key::Char('g'), Key::Char('g')];
         assert_eq!(kb.resolve(EditorMode::Normal, &g), Resolution::Pending);
-        assert_eq!(kb.resolve(EditorMode::Normal, &gg),
-                   Resolution::Match(BoundCommand::new("cursor.buffer_start")));
+        assert_eq!(
+            kb.resolve(EditorMode::Normal, &gg),
+            Resolution::Match(BoundCommand::new("cursor.buffer_start"))
+        );
     }
 
     #[test]
@@ -516,7 +595,9 @@ mod tests {
         let kb = Keybindings::defaults();
         let space = Key::Char(' ');
         let seq = vec![space, Key::Char('q')];
-        assert_eq!(kb.resolve(EditorMode::Normal, &seq),
-                   Resolution::Match(BoundCommand::new("app.quit")));
+        assert_eq!(
+            kb.resolve(EditorMode::Normal, &seq),
+            Resolution::Match(BoundCommand::new("app.quit"))
+        );
     }
 }

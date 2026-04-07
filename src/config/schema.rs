@@ -76,7 +76,11 @@ pub struct SearchConfig {
 
 impl Default for SearchConfig {
     fn default() -> Self {
-        Self { case_sensitive: false, hidden_files: false, max_results: 1000 }
+        Self {
+            case_sensitive: false,
+            hidden_files: false,
+            max_results: 1000,
+        }
     }
 }
 
@@ -87,7 +91,9 @@ pub struct TerminalConfig {
 }
 
 impl Default for TerminalConfig {
-    fn default() -> Self { Self { shell: None } }
+    fn default() -> Self {
+        Self { shell: None }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

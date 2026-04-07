@@ -6,8 +6,8 @@ pub mod motions;
 pub mod ops;
 pub mod registers;
 pub mod search;
-pub mod text_objects;
 pub mod selection;
+pub mod text_objects;
 
 pub use buffer::{Buffer, Point};
 pub use cursor::Cursor;

@@ -17,20 +17,30 @@ pub struct SearchResultsPane {
 }
 
 impl SearchResultsPane {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn set_hits(&mut self, hits: Vec<SearchHit>) {
         self.hits = hits;
         self.selected = 0;
     }
-    pub fn move_up(&mut self) { if self.selected > 0 { self.selected -= 1; } }
+    pub fn move_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
     pub fn move_down(&mut self) {
-        if self.selected + 1 < self.hits.len() { self.selected += 1; }
+        if self.selected + 1 < self.hits.len() {
+            self.selected += 1;
+        }
     }
 }
 
 #[async_trait]
 impl Pane for SearchResultsPane {
-    fn name(&self) -> &str { "search_results" }
+    fn name(&self) -> &str {
+        "search_results"
+    }
 }
 
 /// Project search: walk `root` (respecting .gitignore), match each line against

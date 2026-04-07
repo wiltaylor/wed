@@ -9,7 +9,12 @@ pub struct Sidebar {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Self { open: false, width: 30, panes: Vec::new(), active: 0 }
+        Self {
+            open: false,
+            width: 30,
+            panes: Vec::new(),
+            active: 0,
+        }
     }
 }
 

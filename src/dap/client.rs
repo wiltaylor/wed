@@ -256,13 +256,7 @@ mod tests {
         let (sw, cr) = duplex(4096);
         let writer = Box::new(sink());
         let (etx, _erx) = mpsc::unbounded_channel();
-        let client = DapClient::from_split(
-            SessionId(0),
-            "mock".into(),
-            Box::new(cr),
-            writer,
-            etx,
-        );
+        let client = DapClient::from_split(SessionId(0), "mock".into(), Box::new(cr), writer, etx);
 
         // Pretend we sent request seq=42.
         let rx = client.register_pending(42);

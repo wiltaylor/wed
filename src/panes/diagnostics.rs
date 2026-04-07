@@ -20,20 +20,30 @@ pub struct DiagnosticsPane {
 }
 
 impl DiagnosticsPane {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn set_entries(&mut self, entries: Vec<DiagnosticEntry>) {
         self.entries = entries;
         if self.selected >= self.entries.len() {
             self.selected = 0;
         }
     }
-    pub fn move_up(&mut self) { if self.selected > 0 { self.selected -= 1; } }
+    pub fn move_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
     pub fn move_down(&mut self) {
-        if self.selected + 1 < self.entries.len() { self.selected += 1; }
+        if self.selected + 1 < self.entries.len() {
+            self.selected += 1;
+        }
     }
 }
 
 #[async_trait]
 impl Pane for DiagnosticsPane {
-    fn name(&self) -> &str { "diagnostics" }
+    fn name(&self) -> &str {
+        "diagnostics"
+    }
 }

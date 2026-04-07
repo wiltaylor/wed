@@ -14,19 +14,36 @@ fn point_to_byte(buf: &Buffer, row: usize, col: usize) -> usize {
     buf.point_to_byte(crate::editor::buffer::Point { row, col })
 }
 
-fn is_word(c: char) -> bool { c.is_alphanumeric() || c == '_' }
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
 
 /// `iw` — inner word.
 pub fn inner_word(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
     let line = buf.line(cur.row).to_string();
     let chars: Vec<char> = line.trim_end_matches('\n').chars().collect();
-    if chars.is_empty() || cur.col >= chars.len() { return None; }
+    if chars.is_empty() || cur.col >= chars.len() {
+        return None;
+    }
     let mut s = cur.col;
     let mut e = cur.col;
-    let pred: fn(char) -> bool = if is_word(chars[cur.col]) { |c| is_word(c) } else if chars[cur.col].is_whitespace() { |c| c.is_whitespace() } else { |c| !is_word(c) && !c.is_whitespace() };
-    while s > 0 && pred(chars[s - 1]) { s -= 1; }
-    while e + 1 < chars.len() && pred(chars[e + 1]) { e += 1; }
-    Some(ByteRange { start: point_to_byte(buf, cur.row, s), end: point_to_byte(buf, cur.row, e + 1) })
+    let pred: fn(char) -> bool = if is_word(chars[cur.col]) {
+        |c| is_word(c)
+    } else if chars[cur.col].is_whitespace() {
+        |c| c.is_whitespace()
+    } else {
+        |c| !is_word(c) && !c.is_whitespace()
+    };
+    while s > 0 && pred(chars[s - 1]) {
+        s -= 1;
+    }
+    while e + 1 < chars.len() && pred(chars[e + 1]) {
+        e += 1;
+    }
+    Some(ByteRange {
+        start: point_to_byte(buf, cur.row, s),
+        end: point_to_byte(buf, cur.row, e + 1),
+    })
 }
 
 pub fn around_word(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
@@ -36,7 +53,9 @@ pub fn around_word(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
     let chars: Vec<char> = line.trim_end_matches('\n').chars().collect();
     let end_p = buf.byte_to_point(r.end);
     let mut e = end_p.col;
-    while e < chars.len() && chars[e].is_whitespace() { e += 1; }
+    while e < chars.len() && chars[e].is_whitespace() {
+        e += 1;
+    }
     r.end = point_to_byte(buf, cur.row, e);
     Some(r)
 }
@@ -45,15 +64,21 @@ pub fn around_word(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
 pub fn inner_pair(buf: &Buffer, cur: Cursor, open: char, close: char) -> Option<ByteRange> {
     let line = buf.line(cur.row).to_string();
     let chars: Vec<char> = line.trim_end_matches('\n').chars().collect();
-    if chars.is_empty() { return None; }
+    if chars.is_empty() {
+        return None;
+    }
     // search left for `open`
     let mut s = None;
     let mut depth = 0i32;
     let start = cur.col.min(chars.len().saturating_sub(1));
     for i in (0..=start).rev() {
-        if chars[i] == close && open != close { depth += 1; }
-        else if chars[i] == open {
-            if depth == 0 { s = Some(i); break; }
+        if chars[i] == close && open != close {
+            depth += 1;
+        } else if chars[i] == open {
+            if depth == 0 {
+                s = Some(i);
+                break;
+            }
             depth -= 1;
         }
     }
@@ -61,14 +86,21 @@ pub fn inner_pair(buf: &Buffer, cur: Cursor, open: char, close: char) -> Option<
     let mut e = None;
     let mut depth = 0i32;
     for i in (s + 1)..chars.len() {
-        if chars[i] == open && open != close { depth += 1; }
-        else if chars[i] == close {
-            if depth == 0 { e = Some(i); break; }
+        if chars[i] == open && open != close {
+            depth += 1;
+        } else if chars[i] == close {
+            if depth == 0 {
+                e = Some(i);
+                break;
+            }
             depth -= 1;
         }
     }
     let e = e?;
-    Some(ByteRange { start: point_to_byte(buf, cur.row, s + 1), end: point_to_byte(buf, cur.row, e) })
+    Some(ByteRange {
+        start: point_to_byte(buf, cur.row, s + 1),
+        end: point_to_byte(buf, cur.row, e),
+    })
 }
 
 pub fn around_pair(buf: &Buffer, cur: Cursor, open: char, close: char) -> Option<ByteRange> {
@@ -82,8 +114,12 @@ pub fn around_pair(buf: &Buffer, cur: Cursor, open: char, close: char) -> Option
 pub fn inner_paragraph(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
     let mut s = cur.row;
     let mut e = cur.row;
-    while s > 0 && buf.line_len_chars(s - 1) > 0 { s -= 1; }
-    while e + 1 < buf.line_count() && buf.line_len_chars(e + 1) > 0 { e += 1; }
+    while s > 0 && buf.line_len_chars(s - 1) > 0 {
+        s -= 1;
+    }
+    while e + 1 < buf.line_count() && buf.line_len_chars(e + 1) > 0 {
+        e += 1;
+    }
     let start = point_to_byte(buf, s, 0);
     let end_col = buf.line_len_chars(e);
     let end = point_to_byte(buf, e, end_col);
@@ -94,7 +130,9 @@ pub fn around_paragraph(buf: &Buffer, cur: Cursor) -> Option<ByteRange> {
     let mut r = inner_paragraph(buf, cur)?;
     let p = buf.byte_to_point(r.end);
     let mut e = p.row;
-    while e + 1 < buf.line_count() && buf.line_len_chars(e + 1) == 0 { e += 1; }
+    while e + 1 < buf.line_count() && buf.line_len_chars(e + 1) == 0 {
+        e += 1;
+    }
     r.end = point_to_byte(buf, e, buf.line_len_chars(e));
     Some(r)
 }

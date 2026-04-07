@@ -6,8 +6,8 @@ pub mod sidebar_render;
 pub mod statusline;
 pub mod tabline;
 
-use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::Frame;
 
 use crate::app::App;
 use crate::input::EditorMode;
@@ -28,7 +28,12 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
     let mut h = size.height;
 
     let tab_rect = if show_tabline && h > 0 {
-        let r = Rect { x: size.x, y, width: size.width, height: 1 };
+        let r = Rect {
+            x: size.x,
+            y,
+            width: size.width,
+            height: 1,
+        };
         y += 1;
         h = h.saturating_sub(1);
         Some(r)
@@ -38,7 +43,12 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
 
     // Reserve bottom row(s) for statusline + command-line.
     let cmdline_rect = if in_cmdline && h > 0 {
-        let r = Rect { x: size.x, y: y + h - 1, width: size.width, height: 1 };
+        let r = Rect {
+            x: size.x,
+            y: y + h - 1,
+            width: size.width,
+            height: 1,
+        };
         h = h.saturating_sub(1);
         Some(r)
     } else {
@@ -46,7 +56,12 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
     };
 
     let status_rect = if show_status && h > 0 {
-        let r = Rect { x: size.x, y: y + h - 1, width: size.width, height: 1 };
+        let r = Rect {
+            x: size.x,
+            y: y + h - 1,
+            width: size.width,
+            height: 1,
+        };
         h = h.saturating_sub(1);
         Some(r)
     } else {
@@ -65,13 +80,21 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
         0
     };
     let right_w = if app.layout.right_sidebar.open {
-        app.layout.right_sidebar.width.min(middle_w.saturating_sub(left_w))
+        app.layout
+            .right_sidebar
+            .width
+            .min(middle_w.saturating_sub(left_w))
     } else {
         0
     };
 
     let left_rect = if left_w > 0 {
-        let r = Rect { x: middle_x, y: middle_y, width: left_w, height: middle_h };
+        let r = Rect {
+            x: middle_x,
+            y: middle_y,
+            width: left_w,
+            height: middle_h,
+        };
         middle_x += left_w;
         middle_w -= left_w;
         Some(r)
@@ -92,7 +115,12 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
         None
     };
 
-    let editor_rect = Rect { x: middle_x, y: middle_y, width: middle_w, height: middle_h };
+    let editor_rect = Rect {
+        x: middle_x,
+        y: middle_y,
+        width: middle_w,
+        height: middle_h,
+    };
 
     // Tabline
     if let Some(r) = tab_rect {
@@ -135,8 +163,8 @@ pub fn render(frame: &mut Frame<'_>, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
 
     #[test]
     fn renders_empty_with_statusline() {
@@ -150,7 +178,10 @@ mod tests {
         for x in 0..buf.area.width {
             bottom.push_str(buf[(x, buf.area.height - 1)].symbol());
         }
-        assert!(bottom.contains("NORMAL"), "expected NORMAL in statusline, got {bottom:?}");
+        assert!(
+            bottom.contains("NORMAL"),
+            "expected NORMAL in statusline, got {bottom:?}"
+        );
     }
 
     #[test]

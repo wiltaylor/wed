@@ -9,7 +9,9 @@ pub struct Marks {
 }
 
 impl Marks {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn set(&mut self, name: char, cursor: Cursor) {
         self.map.insert(name, cursor);
@@ -19,7 +21,9 @@ impl Marks {
         self.map.get(&name).copied()
     }
 
-    pub fn clear(&mut self) { self.map.clear(); }
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
 }
 
 #[cfg(test)]

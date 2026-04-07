@@ -2,7 +2,7 @@ use crate::layout::Pane;
 use async_trait::async_trait;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use parking_lot::Mutex;
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::io::Write;
 use std::sync::Arc;
 
@@ -34,7 +34,12 @@ impl TerminalPane {
 
     pub fn spawn(program: &str) -> anyhow::Result<Self> {
         let pty_system = native_pty_system();
-        let size = PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 };
+        let size = PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
         let pair = pty_system.openpty(size)?;
         let cmd = CommandBuilder::new(program);
         let child = pair.slave.spawn_command(cmd)?;
@@ -70,7 +75,12 @@ impl TerminalPane {
         if cols == self.size.cols && rows == self.size.rows {
             return Ok(());
         }
-        let new = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+        let new = PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
         self.master.lock().resize(new)?;
         self.size = new;
         Ok(())
@@ -84,7 +94,9 @@ impl TerminalPane {
     }
 
     /// Snapshot the read buffer for rendering.
-    pub fn snapshot(&self) -> Vec<u8> { self.buffer.lock().clone() }
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.buffer.lock().clone()
+    }
 
     fn key_to_bytes(key: KeyEvent) -> Option<Vec<u8>> {
         let mut out = Vec::new();
@@ -118,7 +130,9 @@ impl TerminalPane {
 
 #[async_trait]
 impl Pane for TerminalPane {
-    fn name(&self) -> &str { "terminal" }
+    fn name(&self) -> &str {
+        "terminal"
+    }
     fn handle_key(&mut self, key: KeyEvent) {
         if let Some(bytes) = Self::key_to_bytes(key) {
             let _ = self.write_input(&bytes);

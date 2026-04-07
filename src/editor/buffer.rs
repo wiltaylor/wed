@@ -31,7 +31,10 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn from_str(text: &str) -> Self {
-        Self { rope: Rope::from_str(text), ..Self::default() }
+        Self {
+            rope: Rope::from_str(text),
+            ..Self::default()
+        }
     }
 
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
@@ -69,20 +72,28 @@ impl Buffer {
 
     /// Length of `line` in bytes excluding the trailing newline.
     pub fn line_len_bytes(&self, line: usize) -> usize {
-        if line >= self.rope.len_lines() { return 0; }
+        if line >= self.rope.len_lines() {
+            return 0;
+        }
         let l = self.rope.line(line);
         let mut n = l.len_bytes();
         // strip trailing \n / \r\n
         if n > 0 {
             let s = l.to_string();
-            if s.ends_with('\n') { n -= 1; }
-            if s.ends_with("\r\n") { n -= 1; }
+            if s.ends_with('\n') {
+                n -= 1;
+            }
+            if s.ends_with("\r\n") {
+                n -= 1;
+            }
         }
         n
     }
 
     pub fn line_len_chars(&self, line: usize) -> usize {
-        if line >= self.rope.len_lines() { return 0; }
+        if line >= self.rope.len_lines() {
+            return 0;
+        }
         let l = self.rope.line(line);
         let s = l.to_string();
         let trimmed = s.trim_end_matches('\n').trim_end_matches('\r');
@@ -111,7 +122,9 @@ impl Buffer {
 
     /// Insert at byte offset. Records to history.
     pub fn insert(&mut self, byte_pos: usize, text: &str) {
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
         let char_idx = self.rope.byte_to_char(byte_pos);
         self.rope.insert(char_idx, text);
         self.dirty = true;
@@ -127,7 +140,9 @@ impl Buffer {
 
     /// Delete a byte range. Records to history. Returns deleted text.
     pub fn delete(&mut self, range: Range<usize>) -> String {
-        if range.start >= range.end { return String::new(); }
+        if range.start >= range.end {
+            return String::new();
+        }
         let start_c = self.rope.byte_to_char(range.start);
         let end_c = self.rope.byte_to_char(range.end);
         let removed: String = self.rope.slice(start_c..end_c).to_string();
@@ -180,16 +195,22 @@ impl Buffer {
         Some(cursor)
     }
 
-    pub fn len_bytes(&self) -> usize { self.rope.len_bytes() }
+    pub fn len_bytes(&self) -> usize {
+        self.rope.len_bytes()
+    }
 
     pub fn slice_bytes(&self, range: Range<usize>) -> String {
-        let start_c = self.rope.byte_to_char(range.start.min(self.rope.len_bytes()));
+        let start_c = self
+            .rope
+            .byte_to_char(range.start.min(self.rope.len_bytes()));
         let end_c = self.rope.byte_to_char(range.end.min(self.rope.len_bytes()));
         self.rope.slice(start_c..end_c).to_string()
     }
 
     pub fn char_at_byte(&self, byte: usize) -> Option<char> {
-        if byte >= self.rope.len_bytes() { return None; }
+        if byte >= self.rope.len_bytes() {
+            return None;
+        }
         let c = self.rope.byte_to_char(byte);
         self.rope.get_char(c)
     }

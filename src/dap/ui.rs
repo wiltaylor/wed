@@ -25,7 +25,12 @@ impl DebugOverlayState {
         self.current_line = Some((file, line));
     }
 
-    pub fn push_inline_var(&mut self, line: u32, name: impl Into<String>, value: impl Into<String>) {
+    pub fn push_inline_var(
+        &mut self,
+        line: u32,
+        name: impl Into<String>,
+        value: impl Into<String>,
+    ) {
         self.inline_vars.push((line, name.into(), value.into()));
     }
 }

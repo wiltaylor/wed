@@ -25,7 +25,12 @@ impl View {
 
     /// Translate a screen position inside the view's text area into a (row, col)
     /// buffer position, accounting for scroll and gutter width.
-    pub fn screen_to_buffer(&self, screen_row: u16, screen_col: u16, gutter_w: u16) -> (usize, usize) {
+    pub fn screen_to_buffer(
+        &self,
+        screen_row: u16,
+        screen_col: u16,
+        gutter_w: u16,
+    ) -> (usize, usize) {
         let col = screen_col.saturating_sub(gutter_w) as usize + self.scroll.1;
         let row = screen_row as usize + self.scroll.0;
         (row, col)

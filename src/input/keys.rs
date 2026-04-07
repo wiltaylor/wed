@@ -26,7 +26,9 @@ pub enum Key {
 }
 
 impl Default for Key {
-    fn default() -> Self { Key::Null }
+    fn default() -> Self {
+        Key::Null
+    }
 }
 
 impl Key {
@@ -35,9 +37,13 @@ impl Key {
         let alt = ev.modifiers.contains(KeyModifiers::ALT);
         match ev.code {
             KeyCode::Char(c) => {
-                if ctrl { Key::Ctrl(c.to_ascii_lowercase()) }
-                else if alt { Key::Alt(c) }
-                else { Key::Char(c) }
+                if ctrl {
+                    Key::Ctrl(c.to_ascii_lowercase())
+                } else if alt {
+                    Key::Alt(c)
+                } else {
+                    Key::Char(c)
+                }
             }
             KeyCode::Enter => Key::Enter,
             KeyCode::Tab => Key::Tab,

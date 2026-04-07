@@ -13,11 +13,15 @@ pub trait PickerItem {
 }
 
 impl PickerItem for String {
-    fn label(&self) -> String { self.clone() }
+    fn label(&self) -> String {
+        self.clone()
+    }
 }
 
 impl PickerItem for PathBuf {
-    fn label(&self) -> String { self.to_string_lossy().into_owned() }
+    fn label(&self) -> String {
+        self.to_string_lossy().into_owned()
+    }
 }
 
 /// A generic fuzzy picker.
@@ -58,9 +62,7 @@ impl<T: PickerItem> Picker<T> {
         } else {
             for (idx, item) in self.items.iter().enumerate() {
                 let hay = Utf32String::from(item.label().as_str());
-                if let Some(score) =
-                    self.matcher.fuzzy_match(hay.slice(..), needle.slice(..))
-                {
+                if let Some(score) = self.matcher.fuzzy_match(hay.slice(..), needle.slice(..)) {
                     self.matches.push((idx, score as i64));
                 }
             }
@@ -84,7 +86,9 @@ impl<T: PickerItem> Picker<T> {
     }
 
     pub fn current(&self) -> Option<&T> {
-        self.matches.get(self.selected).and_then(|(i, _)| self.items.get(*i))
+        self.matches
+            .get(self.selected)
+            .and_then(|(i, _)| self.items.get(*i))
     }
 }
 
