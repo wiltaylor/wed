@@ -148,6 +148,25 @@ pub fn render(
         (rows, stop)
     };
 
+    // Annotation rows for this buffer (0-based screen rows).
+    let ann_rows: std::collections::HashSet<usize> = {
+        let canon = buf
+            .and_then(|b| b.path.as_ref())
+            .and_then(|p| std::fs::canonicalize(p).ok());
+        let mut rows = std::collections::HashSet::new();
+        if let Some(path) = &canon {
+            for (a_path, list) in &app.annotations.files {
+                let a_canon = std::fs::canonicalize(a_path).unwrap_or_else(|_| a_path.clone());
+                if &a_canon == path {
+                    for a in list {
+                        rows.insert(a.line.saturating_sub(1) as usize);
+                    }
+                }
+            }
+        }
+        rows
+    };
+
     let cursor_row = view.cursor.0;
     let cursor_col = view.cursor.1;
     let scroll_row = view.scroll.0;
@@ -160,6 +179,7 @@ pub fn render(
 
         let has_bp = bp_rows.contains(&buf_row);
         let is_stop = current_stop_row == Some(buf_row);
+        let has_ann = ann_rows.contains(&buf_row);
         if gw > 0 {
             let mut label = match ln_style {
                 LineNumberStyle::Absolute => {
@@ -185,12 +205,25 @@ pub fn render(
             };
             // Overlay a leading breakpoint/stop marker in the gutter's first
             // cell. Order of precedence: current-stop arrow beats breakpoint.
-            if (has_bp || is_stop) && !label.is_empty() {
-                let marker = if is_stop { '▶' } else { '●' };
+            if (has_bp || is_stop || has_ann) && !label.is_empty() {
+                // Precedence: stop arrow > breakpoint > annotation.
+                let marker = if is_stop {
+                    '▶'
+                } else if has_bp {
+                    '●'
+                } else {
+                    '◆'
+                };
                 let mut chars: Vec<char> = label.chars().collect();
                 chars[0] = marker;
                 label = chars.into_iter().collect();
-                let color = if is_stop { Color::Yellow } else { Color::Red };
+                let color = if is_stop {
+                    Color::Yellow
+                } else if has_bp {
+                    Color::Red
+                } else {
+                    Color::Cyan
+                };
                 // Split the gutter into [marker][rest] so the marker color
                 // doesn't bleed into the line number.
                 let mut it = label.chars();

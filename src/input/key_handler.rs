@@ -89,6 +89,11 @@ pub struct KeyHandler;
 impl KeyHandler {
     pub fn handle(app: &mut App, key: Key) {
         app.status_message = None;
+        // Annotation editor modal swallows all input while active.
+        if app.annotation_prompt.is_some() {
+            Self::handle_annotation_prompt(app, key);
+            return;
+        }
         // Context menu overlay swallows all input.
         if app.context_menu.is_some() {
             Self::handle_context_menu(app, key);
@@ -539,8 +544,217 @@ impl KeyHandler {
         }
     }
 
+    /// Open the modal annotation editor for the cursor line. Prefills
+    /// the input with any existing annotation's comment so the modal
+    /// also serves as a "view existing annotation" surface.
+    fn open_annotation_prompt(app: &mut App) {
+        let target = app.layout.active_tab().and_then(|t| {
+            t.root
+                .find(t.active_view)
+                .map(|v| (v.cursor.0, v.buffer_id.0 as usize))
+        });
+        let Some((row, buf_idx)) = target else {
+            app.status_message = Some(("no active view".into(), true));
+            return;
+        };
+        let Some(path) = app.buffers.get(buf_idx).and_then(|b| b.path.clone()) else {
+            app.status_message = Some(("no file path for buffer".into(), true));
+            return;
+        };
+        let abs = std::fs::canonicalize(&path).unwrap_or(path);
+        let line = (row + 1) as u32;
+        let existing = app
+            .annotations
+            .get(&abs)
+            .iter()
+            .find(|a| a.line == line)
+            .map(|a| a.comment.clone());
+        let (input, editing_existing) = match existing {
+            Some(c) => (c, true),
+            None => (String::new(), false),
+        };
+        let cursor = input.len();
+        app.annotation_prompt = Some(crate::app::AnnotationPrompt {
+            path: abs,
+            line,
+            input,
+            cursor,
+            editing_existing,
+        });
+    }
+
+    /// Key dispatch for the annotation modal. Enter saves, Esc cancels,
+    /// Ctrl-D deletes the annotation (even if it already existed).
+    fn handle_annotation_prompt(app: &mut App, key: Key) {
+        let Some(prompt) = app.annotation_prompt.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                app.annotation_prompt = None;
+            }
+            Key::Enter => {
+                let prompt = app.annotation_prompt.take().unwrap();
+                let text = prompt.input.trim().to_string();
+                if text.is_empty() {
+                    // Empty input: if there was an existing annotation,
+                    // remove it; otherwise do nothing.
+                    if prompt.editing_existing {
+                        app.annotations.remove(&prompt.path, prompt.line);
+                        app.status_message = Some((
+                            format!("annotation removed at line {}", prompt.line),
+                            false,
+                        ));
+                    }
+                } else {
+                    app.annotations.add(&prompt.path, prompt.line, text);
+                    app.status_message = Some((
+                        format!(
+                            "annotation {} at line {}",
+                            if prompt.editing_existing { "updated" } else { "set" },
+                            prompt.line
+                        ),
+                        false,
+                    ));
+                }
+                let root = app.git.root.clone();
+                if let Err(e) = app.annotations.save(&root) {
+                    app.status_message = Some((format!("save annotations: {e}"), true));
+                }
+            }
+            Key::Backspace => prompt.backspace(),
+            Key::Delete => prompt.delete_forward(),
+            Key::Left => prompt.move_left(),
+            Key::Right => prompt.move_right(),
+            Key::Home => prompt.cursor = 0,
+            Key::End => prompt.cursor = prompt.input.len(),
+            Key::Ctrl('u') => {
+                prompt.input.clear();
+                prompt.cursor = 0;
+            }
+            Key::Ctrl('d') => {
+                // Delete the annotation outright.
+                let p = app.annotation_prompt.take().unwrap();
+                let removed = app.annotations.remove(&p.path, p.line);
+                let root = app.git.root.clone();
+                let _ = app.annotations.save(&root);
+                app.status_message = Some((
+                    if removed {
+                        format!("annotation removed at line {}", p.line)
+                    } else {
+                        format!("no annotation at line {}", p.line)
+                    },
+                    !removed,
+                ));
+            }
+            Key::Char(c) => prompt.insert_char(c),
+            _ => {}
+        }
+    }
+
+    /// Handle `:annotate [text]`. Empty text removes any annotation at
+    /// the cursor line; non-empty text adds or replaces one.
+    fn dispatch_annotation(app: &mut App, text: &str) {
+        let target = app.layout.active_tab().and_then(|t| {
+            t.root
+                .find(t.active_view)
+                .map(|v| (v.cursor.0, v.buffer_id.0 as usize))
+        });
+        let Some((row, buf_idx)) = target else {
+            app.status_message = Some(("no active view".into(), true));
+            return;
+        };
+        let Some(path) = app.buffers.get(buf_idx).and_then(|b| b.path.clone()) else {
+            app.status_message = Some(("no file path for buffer".into(), true));
+            return;
+        };
+        let abs = std::fs::canonicalize(&path).unwrap_or(path);
+        let line = (row + 1) as u32;
+        if text.is_empty() {
+            let removed = app.annotations.remove(&abs, line);
+            app.status_message = Some((
+                if removed {
+                    format!("annotation removed at line {}", line)
+                } else {
+                    format!("no annotation at line {}", line)
+                },
+                !removed,
+            ));
+        } else {
+            app.annotations.add(&abs, line, text.to_string());
+            app.status_message =
+                Some((format!("annotation set at line {}", line), false));
+        }
+        let root = app.git.root.clone();
+        if let Err(e) = app.annotations.save(&root) {
+            app.status_message = Some((format!("save annotations: {e}"), true));
+        }
+    }
+
+    /// Populate the fuzzy picker with every annotation across every file.
+    /// Reuses `app.lsp_goto_results` as the parallel jump-target array so
+    /// the existing picker Enter path jumps straight to file+line.
+    fn open_annotation_picker(app: &mut App) {
+        if app.annotations.files.is_empty() {
+            app.status_message = Some(("no annotations".into(), false));
+            return;
+        }
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let mut items: Vec<std::path::PathBuf> = Vec::new();
+        let mut locs: Vec<lsp_types::Location> = Vec::new();
+        for (path, list) in &app.annotations.files {
+            let rel = path.strip_prefix(&cwd).unwrap_or(path);
+            for a in list {
+                items.push(std::path::PathBuf::from(format!(
+                    "{}:{}: {}",
+                    rel.display(),
+                    a.line,
+                    a.comment
+                )));
+                // Build an lsp_types::Location that jump_to_location can
+                // consume. Safe to unwrap: path came from canonicalize.
+                if let Ok(url) = url::Url::from_file_path(path) {
+                    if let Ok(uri) = url.as_str().parse::<lsp_types::Uri>() {
+                        let line = a.line.saturating_sub(1);
+                        locs.push(lsp_types::Location {
+                            uri,
+                            range: lsp_types::Range {
+                                start: lsp_types::Position { line, character: 0 },
+                                end: lsp_types::Position { line, character: 0 },
+                            },
+                        });
+                        continue;
+                    }
+                }
+                // If URI construction fails, push a bogus location so
+                // the index stays aligned; jump will be a no-op.
+                locs.push(lsp_types::Location {
+                    uri: "file:///".parse().unwrap(),
+                    range: lsp_types::Range::default(),
+                });
+            }
+        }
+        app.lsp_goto_results = locs;
+        app.picker = Some(crate::panes::picker::Picker::new(items));
+        app.picker_query.clear();
+        app.status_message =
+            Some((format!("annotations: {}", app.lsp_goto_results.len()), false));
+    }
+
     fn run_leader_command(app: &mut App, name: &str) {
         match name {
+            "annotation.prompt" => {
+                Self::open_annotation_prompt(app);
+                return;
+            }
+            "annotation.remove" => {
+                Self::dispatch_annotation(app, "");
+                return;
+            }
+            "annotation.list" => {
+                Self::open_annotation_picker(app);
+                return;
+            }
             "search.files" => {
                 let root =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -1021,6 +1235,30 @@ impl KeyHandler {
                     }
                     app.mode = EditorMode::Normal;
                 } else {
+                    // Intercept `:annotate [text]` before normal registry
+                    // dispatch so we can touch the annotation store with
+                    // full `&mut App` access.
+                    let raw = app.command_line.input.trim_start_matches(':').trim().to_string();
+                    let is_annotate = raw
+                        .split_whitespace()
+                        .next()
+                        .map(|h| h == "annotate" || h == "ann")
+                        .unwrap_or(false);
+                    if is_annotate {
+                        let rest = raw
+                            .splitn(2, char::is_whitespace)
+                            .nth(1)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        app.command_line.history.push(std::mem::take(&mut app.command_line.input));
+                        app.command_line.cursor = 0;
+                        app.command_line.completions.clear();
+                        app.command_line.completion_idx = None;
+                        Self::dispatch_annotation(app, &rest);
+                        app.mode = EditorMode::Normal;
+                        return;
+                    }
                     let registry = std::mem::take(&mut app.commands);
                     let App {
                         buffers,

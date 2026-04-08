@@ -271,6 +271,9 @@ impl Keybindings {
             ("do", "dap.step_out"),
             ("dp", "dap.pause"),
             ("dt", "dap.panel.toggle"),
+            ("an", "annotation.prompt"),
+            ("al", "annotation.list"),
+            ("ad", "annotation.remove"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

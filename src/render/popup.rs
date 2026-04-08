@@ -189,6 +189,124 @@ pub fn render_leader_popup(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
+/// Render the modal annotation editor (centered on the editor area).
+/// Shows a single-line input with a visible cursor, titled based on
+/// whether an existing annotation is being edited.
+pub fn render_annotation_prompt(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let Some(prompt) = app.annotation_prompt.as_ref() else {
+        return;
+    };
+    if area.width < 20 || area.height < 5 {
+        return;
+    }
+
+    let w = 70u16.min(area.width.saturating_sub(4)).max(20);
+    let h = 5u16;
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup_area = Rect { x, y, width: w, height: h };
+
+    frame.render_widget(Clear, popup_area);
+    let title = if prompt.editing_existing {
+        format!(" Edit annotation — line {} ", prompt.line)
+    } else {
+        format!(" Add annotation — line {} ", prompt.line)
+    };
+    let border_color = if prompt.editing_existing { Color::Cyan } else { Color::Yellow };
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color))
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    // File path hint (relative to cwd if possible).
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let rel = prompt.path.strip_prefix(&cwd).unwrap_or(&prompt.path);
+    let hint = Line::from(Span::styled(
+        rel.display().to_string(),
+        Style::default().fg(Color::DarkGray),
+    ));
+    let hint_rect = Rect {
+        x: inner.x,
+        y: inner.y,
+        width: inner.width,
+        height: 1,
+    };
+    frame.render_widget(Paragraph::new(hint), hint_rect);
+
+    // Input line with a block-cursor overlay at `prompt.cursor`.
+    if inner.height >= 2 {
+        let input_rect = Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: 1,
+        };
+        let input = &prompt.input;
+        let before: String = input[..prompt.cursor].to_string();
+        let at: String = input[prompt.cursor..]
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| " ".to_string());
+        let after: String = if prompt.cursor < input.len() {
+            input[prompt.cursor + at.len()..].to_string()
+        } else {
+            String::new()
+        };
+        let spans = vec![
+            Span::raw(before),
+            Span::styled(
+                at,
+                Style::default()
+                    .bg(Color::White)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(after),
+        ];
+        frame.render_widget(Paragraph::new(Line::from(spans)), input_rect);
+    }
+
+    // Hint footer with keybinds.
+    if inner.height >= 3 {
+        let foot_rect = Rect {
+            x: inner.x,
+            y: inner.y + 2,
+            width: inner.width,
+            height: 1,
+        };
+        let foot = Line::from(vec![
+            Span::styled(
+                "Enter",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" save  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Esc",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" cancel  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "C-d",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" delete  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "C-u",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" clear", Style::default().fg(Color::DarkGray)),
+        ]);
+        frame.render_widget(Paragraph::new(foot), foot_rect);
+    }
+}
+
 /// Helper to draw a bordered popup with given text inside `area`.
 pub fn draw_popup(frame: &mut Frame<'_>, area: Rect, title: &str, text: &str) {
     frame.render_widget(Clear, area);

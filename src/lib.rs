@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 
+pub mod annotations;
 pub mod app;
 pub mod commands;
 pub mod config;

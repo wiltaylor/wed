@@ -103,6 +103,12 @@ pub struct App {
     /// an LSP goto command — index matches picker's item index.
     pub lsp_goto_results: Vec<lsp_types::Location>,
     pub git: GitState,
+    /// User annotations on files (comment + file + line). Persisted to
+    /// `<git.root>/annotations.txt`.
+    pub annotations: crate::annotations::AnnotationStore,
+    /// Active annotation-editor modal. When `Some`, input is routed to
+    /// the modal instead of the editor.
+    pub annotation_prompt: Option<AnnotationPrompt>,
     pub context_menu: Option<ContextMenu>,
     /// Path the right-click context menu was opened on (so its commands
     /// can act on the correct file).
@@ -131,6 +137,62 @@ impl LspGotoKind {
             Self::Definition => "definition",
             Self::Implementation => "implementation",
             Self::References => "references",
+        }
+    }
+}
+
+/// Modal state for the annotation editor popup. `path` and `line`
+/// are the target; `input` is the comment being edited.
+#[derive(Debug, Clone)]
+pub struct AnnotationPrompt {
+    pub path: std::path::PathBuf,
+    pub line: u32,
+    pub input: String,
+    pub cursor: usize,
+    /// True if an annotation already existed at this line when the
+    /// prompt was opened (so the title can say "Edit" vs "Add").
+    pub editing_existing: bool,
+}
+
+impl AnnotationPrompt {
+    pub fn insert_char(&mut self, c: char) {
+        self.input.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
+    }
+    pub fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let new_cursor = self.input[..self.cursor]
+            .char_indices()
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.input.replace_range(new_cursor..self.cursor, "");
+        self.cursor = new_cursor;
+    }
+    pub fn delete_forward(&mut self) {
+        if self.cursor >= self.input.len() {
+            return;
+        }
+        if let Some((_, c)) = self.input[self.cursor..].char_indices().next() {
+            let end = self.cursor + c.len_utf8();
+            self.input.replace_range(self.cursor..end, "");
+        }
+    }
+    pub fn move_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.cursor = self.input[..self.cursor]
+            .char_indices()
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+    }
+    pub fn move_right(&mut self) {
+        if let Some((_, c)) = self.input[self.cursor..].char_indices().next() {
+            self.cursor += c.len_utf8();
         }
     }
 }
@@ -200,6 +262,11 @@ impl App {
             ),
             context_menu: None,
             context_menu_path: None,
+            annotations: {
+                let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                crate::annotations::AnnotationStore::load(&root).unwrap_or_default()
+            },
+            annotation_prompt: None,
         }
     }
 
@@ -272,17 +339,25 @@ impl App {
     /// Open a file in a new tab. If the file is already open in an
     /// existing tab, switch to that tab instead.
     pub fn open_file_in_new_tab(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
-        // Reuse an existing tab if this file is already open.
+        // Reuse an existing tab if this file is already open. Compare
+        // canonicalized paths so differently-spelled paths (relative
+        // vs absolute, `.` segments, symlinks) still hit.
+        let target_canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         for (i, b) in self.buffers.iter().enumerate() {
-            if b.path.as_deref() == Some(path) {
-                // Find the tab whose active view points at this buffer.
-                for (ti, tab) in self.layout.tabs.iter().enumerate() {
-                    if let Some(v) = tab.root.find(tab.active_view) {
-                        if v.buffer_id.0 as usize == i {
-                            self.layout.active_tab = ti;
-                            return Ok(());
-                        }
-                    }
+            let Some(bp) = b.path.as_deref() else { continue };
+            let bp_canon = std::fs::canonicalize(bp).unwrap_or_else(|_| bp.to_path_buf());
+            if bp_canon != target_canon {
+                continue;
+            }
+            // Find any tab containing a view bound to this buffer.
+            for (ti, tab) in self.layout.tabs.iter().enumerate() {
+                if tab
+                    .root
+                    .iter_leaves()
+                    .any(|(_, v)| v.buffer_id.0 as usize == i)
+                {
+                    self.layout.active_tab = ti;
+                    return Ok(());
                 }
             }
         }
@@ -547,11 +622,28 @@ impl App {
         }
         let row = loc.range.start.line as usize;
         let col = loc.range.start.character as usize;
-        if let Some(tab) = self.layout.active_tab_mut() {
-            let id = tab.active_view;
-            if let Some(view) = tab.root.find_mut(id) {
-                view.cursor = (row, col);
-                view.scroll.0 = row.saturating_sub(5);
+        // Find the buffer index for `path` and then the view in the
+        // active tab bound to that buffer (which may not be the
+        // currently-active split).
+        let target_canon = std::fs::canonicalize(&path).unwrap_or(path);
+        let buf_idx = self.buffers.iter().position(|b| {
+            b.path
+                .as_deref()
+                .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()))
+                == Some(target_canon.clone())
+        });
+        if let (Some(bi), Some(tab)) = (buf_idx, self.layout.active_tab_mut()) {
+            let target_vid = tab
+                .root
+                .iter_leaves()
+                .find(|(_, v)| v.buffer_id.0 as usize == bi)
+                .map(|(id, _)| id);
+            if let Some(vid) = target_vid {
+                tab.active_view = vid;
+                if let Some(view) = tab.root.find_mut(vid) {
+                    view.cursor = (row, col);
+                    view.scroll.0 = row.saturating_sub(5);
+                }
             }
         }
     }

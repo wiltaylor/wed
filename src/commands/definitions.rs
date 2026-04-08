@@ -21,6 +21,21 @@ pub fn register_all(reg: &mut CommandRegistry) {
     register_editor_commands(reg);
     register_git_commands(reg);
     register_dap_commands(reg);
+    register_annotation_commands(reg);
+}
+
+/// Annotation commands. Registry bodies are stubs; the real dispatch
+/// happens in `KeyHandler` (command-line path) where it has access to
+/// the full `App` + annotation store.
+pub fn register_annotation_commands(reg: &mut CommandRegistry) {
+    for name in [
+        "annotation.add",
+        "annotation.remove",
+        "annotation.prompt",
+        "annotation.list",
+    ] {
+        reg.register(name, |_ctx, _| Ok(()));
+    }
 }
 
 /// DAP commands. Bodies are stubs at the registry layer; the real
