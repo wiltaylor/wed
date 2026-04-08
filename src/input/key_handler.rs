@@ -94,6 +94,11 @@ impl KeyHandler {
             Self::handle_annotation_prompt(app, key);
             return;
         }
+        // Rename prompt modal swallows all input while active.
+        if app.rename_prompt.is_some() {
+            Self::handle_rename_prompt(app, key);
+            return;
+        }
         // Context menu overlay swallows all input.
         if app.context_menu.is_some() {
             Self::handle_context_menu(app, key);
@@ -280,6 +285,72 @@ impl KeyHandler {
                         app.context_menu_path = Some(path);
                     }
                 }
+                return;
+            }
+            // Right-click in an editor view → LSP context menu.
+            let (col, row) = (ev.column, ev.row);
+            let mut hit: Option<(crate::app::ViewId, ratatui::layout::Rect)> = None;
+            for (vid, r) in &app.last_editor_view_rects {
+                if r.width > 0
+                    && r.height > 0
+                    && col >= r.x
+                    && col < r.x + r.width
+                    && row >= r.y
+                    && row < r.y + r.height
+                {
+                    hit = Some((*vid, *r));
+                    break;
+                }
+            }
+            if let Some((vid, rect)) = hit {
+                // Reuse the left-click coord-mapping logic.
+                let (buf_lines, buf_idx) = if let Some(tab) = app.layout.active_tab() {
+                    let v = tab.root.find(vid);
+                    let idx = v.map(|v| v.buffer_id.0 as usize);
+                    let lines = idx
+                        .and_then(|i| app.buffers.get(i))
+                        .map(|b| b.rope.len_lines())
+                        .unwrap_or(0);
+                    (lines, idx)
+                } else {
+                    (0, None)
+                };
+                let gw = crate::render::editor_view::gutter_width(
+                    crate::render::editor_view::line_number_style(app),
+                    buf_lines.max(1),
+                );
+                let local_row = (row - rect.y) as usize;
+                let local_col = col.saturating_sub(rect.x);
+                let (mut br, mut bc) = (0, 0);
+                if let Some(tab) = app.layout.active_tab() {
+                    if let Some(view) = tab.root.find(vid) {
+                        let p = view.screen_to_buffer(local_row as u16, local_col, gw);
+                        br = p.0;
+                        bc = p.1;
+                    }
+                }
+                if let Some(b) = buf_idx.and_then(|i| app.buffers.get(i)) {
+                    let max_row = b.line_count().saturating_sub(1);
+                    br = br.min(max_row);
+                    let line_chars = b.line_len_chars(br);
+                    bc = bc.min(line_chars);
+                }
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    tab.active_view = vid;
+                    if let Some(view) = tab.root.find_mut(vid) {
+                        view.cursor = (br, bc);
+                    }
+                }
+                use crate::panes::context_menu::{ContextMenu, MenuItem};
+                let items = vec![
+                    MenuItem { label: "Rename".into(), command: "lsp.rename".into(), args: vec![] },
+                    MenuItem { label: "Code Actions".into(), command: "lsp.code_action".into(), args: vec![col.to_string(), row.to_string()] },
+                    MenuItem { label: "Go to Definition".into(), command: "lsp.definition".into(), args: vec![] },
+                    MenuItem { label: "Go to Implementation".into(), command: "lsp.implementation".into(), args: vec![] },
+                    MenuItem { label: "Find References".into(), command: "lsp.references".into(), args: vec![] },
+                    MenuItem { label: "Hover".into(), command: "lsp.hover".into(), args: vec![] },
+                ];
+                app.context_menu = Some(ContextMenu::new(items, col, row));
             }
             return;
         }
@@ -312,7 +383,7 @@ impl KeyHandler {
                     };
                     app.context_menu = None;
                     if let Some(item) = chosen {
-                        Self::run_leader_command(app, &item.command);
+                        Self::run_menu_item(app, &item);
                     }
                 }
                 return;
@@ -741,6 +812,57 @@ impl KeyHandler {
             Some((format!("annotations: {}", app.lsp_goto_results.len()), false));
     }
 
+    /// Dispatch a context-menu selection. Handles the few menu items that
+    /// carry arguments the plain command name can't express (code-action
+    /// anchor, code-action index); everything else falls through to
+    /// `run_leader_command`.
+    fn run_menu_item(app: &mut App, item: &crate::panes::context_menu::MenuItem) {
+        match item.command.as_str() {
+            "lsp.code_action" => {
+                let anchor = if item.args.len() >= 2 {
+                    let c = item.args[0].parse::<u16>().unwrap_or(0);
+                    let r = item.args[1].parse::<u16>().unwrap_or(0);
+                    (c, r)
+                } else {
+                    (0, 0)
+                };
+                app.trigger_lsp_code_actions(anchor);
+            }
+            "lsp.code_action.apply" => {
+                let idx = item
+                    .args
+                    .first()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                app.apply_code_action_at(idx);
+            }
+            _ => Self::run_leader_command(app, &item.command),
+        }
+    }
+
+    fn handle_rename_prompt(app: &mut App, key: Key) {
+        let Some(prompt) = app.rename_prompt.as_mut() else { return };
+        match key {
+            Key::Esc => {
+                app.rename_prompt = None;
+            }
+            Key::Enter => {
+                app.submit_rename();
+            }
+            Key::Backspace => prompt.backspace(),
+            Key::Left => prompt.move_left(),
+            Key::Right => prompt.move_right(),
+            Key::Home => prompt.cursor = 0,
+            Key::End => prompt.cursor = prompt.input.len(),
+            Key::Ctrl('u') => {
+                prompt.input.clear();
+                prompt.cursor = 0;
+            }
+            Key::Char(c) => prompt.insert_char(c),
+            _ => {}
+        }
+    }
+
     fn run_leader_command(app: &mut App, name: &str) {
         match name {
             "annotation.prompt" => {
@@ -785,6 +907,14 @@ impl KeyHandler {
             }
             "lsp.references" => {
                 app.trigger_lsp_goto(crate::app::LspGotoKind::References);
+            }
+            "lsp.rename" => {
+                app.trigger_lsp_rename();
+            }
+            "lsp.code_action" => {
+                // Anchor at cursor position on screen; best-effort if the
+                // cursor isn't tracked here, fall back to (0,0).
+                app.trigger_lsp_code_actions((0, 0));
             }
             "panel.toggle" => {
                 let p = &mut app.layout.bottom_panel;
@@ -1030,7 +1160,7 @@ impl KeyHandler {
                 });
                 app.context_menu = None;
                 if let Some(item) = chosen {
-                    Self::run_leader_command(app, &item.command);
+                    Self::run_menu_item(app, &item);
                 }
             }
             _ => {}

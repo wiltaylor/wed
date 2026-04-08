@@ -1,5 +1,6 @@
 //! LSP subsystem: spawns language servers and proxies requests/notifications.
 
+pub mod apply_edit;
 pub mod capabilities;
 pub mod client;
 pub mod code_actions;

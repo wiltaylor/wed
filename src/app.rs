@@ -43,7 +43,12 @@ pub enum AppEvent {
     LspReferences { request: RequestId },
     LspSignature { request: RequestId },
     LspCodeActions { request: RequestId },
+    LspCodeActionsResult {
+        actions: Vec<lsp_types::CodeActionOrCommand>,
+        anchor: (u16, u16),
+    },
     LspRename { request: RequestId },
+    LspRenameResult { edit: Option<lsp_types::WorkspaceEdit> },
     LspServerExit { server: ServerId },
     DapStopped { session: SessionId },
     DapContinued { session: SessionId },
@@ -113,6 +118,11 @@ pub struct App {
     /// Path the right-click context menu was opened on (so its commands
     /// can act on the correct file).
     pub context_menu_path: Option<std::path::PathBuf>,
+    /// Code actions returned by the most recent `lsp.code_action` request.
+    /// Indexed by the right-click context menu's `MenuItem.args[0]`.
+    pub pending_code_actions: Vec<lsp_types::CodeActionOrCommand>,
+    /// Active rename prompt modal (opened via `lsp.rename`).
+    pub rename_prompt: Option<crate::lsp::rename::RenamePrompt>,
 }
 
 /// Kind of LSP navigation request.
@@ -262,6 +272,8 @@ impl App {
             ),
             context_menu: None,
             context_menu_path: None,
+            pending_code_actions: Vec::new(),
+            rename_prompt: None,
             annotations: {
                 let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                 crate::annotations::AnnotationStore::load(&root).unwrap_or_default()
@@ -450,6 +462,14 @@ impl App {
                 self.handle_lsp_goto(label, locations);
                 return;
             }
+            AppEvent::LspCodeActionsResult { actions, anchor } => {
+                self.handle_code_actions_result(actions, anchor);
+                return;
+            }
+            AppEvent::LspRenameResult { edit } => {
+                self.handle_rename_result(edit);
+                return;
+            }
             AppEvent::Key(k) => {
                 // Any key dismisses the hover popup; the `lsp.hover` command
                 // (triggered via leader) repopulates it after KeyHandler runs.
@@ -571,6 +591,215 @@ impl App {
             };
             let _ = event_tx.send(AppEvent::LspGotoLocation { label, locations });
         });
+    }
+
+    /// Fire a `textDocument/codeAction` request at the cursor. The response
+    /// lands back via `AppEvent::LspCodeActionsResult` and opens a menu
+    /// anchored at `anchor` (usually the cursor position on screen).
+    pub fn trigger_lsp_code_actions(&mut self, anchor: (u16, u16)) {
+        self.hover_popup = None;
+        let Some(tab) = self.layout.active_tab() else { return };
+        let Some(view) = tab.root.find(tab.active_view) else { return };
+        let (row, col) = (view.cursor.0, view.cursor.1);
+        let buf_idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get(buf_idx) else { return };
+        let Some(uri) = buf.lsp_uri.clone() else {
+            self.status_message = Some(("no LSP attached".into(), false));
+            return;
+        };
+        let Some(lang_id) = buf.language_id.clone() else { return };
+        let Some(client) = self.lsp.client_for_language(&lang_id) else {
+            self.status_message = Some(("LSP not ready".into(), false));
+            return;
+        };
+        let diagnostics = self.lsp.diagnostics.lock().get(&uri).to_vec();
+        let position = lsp_types::Position {
+            line: row as u32,
+            character: col as u32,
+        };
+        let range = lsp_types::Range {
+            start: position,
+            end: position,
+        };
+        self.status_message = Some(("code actions: loading…".into(), false));
+        let event_tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            use lsp_types::request::Request as LspRequest;
+            use lsp_types::{
+                CodeActionContext, CodeActionParams, CodeActionResponse, TextDocumentIdentifier,
+            };
+            let params = CodeActionParams {
+                text_document: TextDocumentIdentifier { uri },
+                range,
+                context: CodeActionContext {
+                    diagnostics,
+                    only: None,
+                    trigger_kind: None,
+                },
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            };
+            let res: Result<Option<CodeActionResponse>, _> = client
+                .request(
+                    <lsp_types::request::CodeActionRequest as LspRequest>::METHOD,
+                    params,
+                )
+                .await;
+            let actions = match res {
+                Ok(Some(v)) => v,
+                Ok(None) => Vec::new(),
+                Err(e) => {
+                    tracing::warn!("lsp code_action failed: {e:#}");
+                    Vec::new()
+                }
+            };
+            let _ = event_tx.send(AppEvent::LspCodeActionsResult { actions, anchor });
+        });
+    }
+
+    fn handle_code_actions_result(
+        &mut self,
+        actions: Vec<lsp_types::CodeActionOrCommand>,
+        anchor: (u16, u16),
+    ) {
+        if actions.is_empty() {
+            self.status_message = Some(("code actions: none".into(), false));
+            return;
+        }
+        use crate::panes::context_menu::{ContextMenu, MenuItem};
+        let items: Vec<MenuItem> = actions
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let label = match a {
+                    lsp_types::CodeActionOrCommand::Command(c) => c.title.clone(),
+                    lsp_types::CodeActionOrCommand::CodeAction(ca) => ca.title.clone(),
+                };
+                MenuItem {
+                    label,
+                    command: "lsp.code_action.apply".to_string(),
+                    args: vec![i.to_string()],
+                }
+            })
+            .collect();
+        self.pending_code_actions = actions;
+        self.context_menu = Some(ContextMenu::new(items, anchor.0, anchor.1));
+        self.status_message = None;
+    }
+
+    /// Apply a pending code action selected from the context menu.
+    pub fn apply_code_action_at(&mut self, idx: usize) {
+        let action = match self.pending_code_actions.get(idx).cloned() {
+            Some(a) => a,
+            None => return,
+        };
+        self.pending_code_actions.clear();
+        match action {
+            lsp_types::CodeActionOrCommand::CodeAction(ca) => {
+                if let Some(edit) = ca.edit {
+                    let n = crate::lsp::apply_edit::apply_workspace_edit(self, edit);
+                    self.status_message = Some((format!("applied code action ({n} file(s))"), false));
+                } else if let Some(_cmd) = ca.command {
+                    self.status_message =
+                        Some(("code action requires workspace/executeCommand (not supported)".into(), true));
+                }
+            }
+            lsp_types::CodeActionOrCommand::Command(_) => {
+                self.status_message =
+                    Some(("code action is a Command (not supported)".into(), true));
+            }
+        }
+    }
+
+    /// Open the rename modal, seeded with the word under the cursor.
+    pub fn trigger_lsp_rename(&mut self) {
+        self.hover_popup = None;
+        let Some(tab) = self.layout.active_tab() else { return };
+        let Some(view) = tab.root.find(tab.active_view) else { return };
+        let (row, col) = (view.cursor.0, view.cursor.1);
+        let buf_idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get(buf_idx) else { return };
+        let Some(uri) = buf.lsp_uri.clone() else {
+            self.status_message = Some(("no LSP attached".into(), false));
+            return;
+        };
+        // Extract the identifier at the cursor on this line.
+        let line = buf.rope.line(row);
+        let chars: Vec<char> = line.chars().take_while(|c| *c != '\n').collect();
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let probe = col.min(chars.len().saturating_sub(1));
+        let original = if chars.is_empty() || !is_word(chars[probe]) {
+            String::new()
+        } else {
+            let mut s = probe;
+            while s > 0 && is_word(chars[s - 1]) { s -= 1; }
+            let mut e = probe;
+            while e < chars.len() && is_word(chars[e]) { e += 1; }
+            chars[s..e].iter().collect()
+        };
+        let position = lsp_types::Position {
+            line: row as u32,
+            character: col as u32,
+        };
+        self.rename_prompt = Some(crate::lsp::rename::RenamePrompt::new(uri, position, original));
+    }
+
+    /// Submit the rename prompt: fire `textDocument/rename` with the
+    /// entered name. Result comes back via `AppEvent::LspRenameResult`.
+    pub fn submit_rename(&mut self) {
+        let Some(prompt) = self.rename_prompt.take() else { return };
+        let new_name = prompt.input.trim().to_string();
+        if new_name.is_empty() || new_name == prompt.original {
+            return;
+        }
+        // Pick any client — rename uses the server for the active buffer's language.
+        let Some(tab) = self.layout.active_tab() else { return };
+        let Some(view) = tab.root.find(tab.active_view) else { return };
+        let buf_idx = view.buffer_id.0 as usize;
+        let Some(buf) = self.buffers.get(buf_idx) else { return };
+        let Some(lang_id) = buf.language_id.clone() else { return };
+        let Some(client) = self.lsp.client_for_language(&lang_id) else {
+            self.status_message = Some(("LSP not ready".into(), false));
+            return;
+        };
+        self.status_message = Some(("rename: loading…".into(), false));
+        let event_tx = self.event_tx.clone();
+        let uri = prompt.uri.clone();
+        let position = prompt.position;
+        tokio::spawn(async move {
+            use lsp_types::request::Request as LspRequest;
+            use lsp_types::{
+                RenameParams, TextDocumentIdentifier, TextDocumentPositionParams, WorkspaceEdit,
+            };
+            let params = RenameParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri },
+                    position,
+                },
+                new_name,
+                work_done_progress_params: Default::default(),
+            };
+            let res: Result<Option<WorkspaceEdit>, _> = client
+                .request(<lsp_types::request::Rename as LspRequest>::METHOD, params)
+                .await;
+            let edit = match res {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!("lsp rename failed: {e:#}");
+                    None
+                }
+            };
+            let _ = event_tx.send(AppEvent::LspRenameResult { edit });
+        });
+    }
+
+    fn handle_rename_result(&mut self, edit: Option<lsp_types::WorkspaceEdit>) {
+        let Some(edit) = edit else {
+            self.status_message = Some(("rename: no result".into(), false));
+            return;
+        };
+        let n = crate::lsp::apply_edit::apply_workspace_edit(self, edit);
+        self.status_message = Some((format!("renamed in {n} file(s)"), false));
     }
 
     /// Handle an incoming `LspGotoLocation` — jump directly on single result,

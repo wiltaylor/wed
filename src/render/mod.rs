@@ -277,6 +277,7 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     popup::render(frame, app, editor_rect);
     popup::render_leader_popup(frame, app, editor_rect);
     popup::render_annotation_prompt(frame, app, editor_rect);
+    popup::render_rename_prompt(frame, app, editor_rect);
     render_diagnostic_tooltip(frame, app);
     if let Some(menu) = &app.context_menu {
         let area = menu.rect(size);
