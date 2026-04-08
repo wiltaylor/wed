@@ -87,6 +87,7 @@ pub struct App {
     pub last_editor_view_rects: Vec<(ViewId, ratatui::layout::Rect)>,
     pub last_left_sidebar_rect: ratatui::layout::Rect,
     pub last_bottom_panel_rect: ratatui::layout::Rect,
+    pub last_bottom_panel_tab_rects: Vec<ratatui::layout::Rect>,
     pub last_tab_rects: Vec<ratatui::layout::Rect>,
     pub last_tab_close_rects: Vec<ratatui::layout::Rect>,
     pub last_sidebar_click_row: Option<usize>,
@@ -178,6 +179,7 @@ impl App {
             last_editor_view_rects: Vec::new(),
             last_left_sidebar_rect: ratatui::layout::Rect::default(),
             last_bottom_panel_rect: ratatui::layout::Rect::default(),
+            last_bottom_panel_tab_rects: Vec::new(),
             last_tab_rects: Vec::new(),
             last_tab_close_rects: Vec::new(),
             last_sidebar_click_row: None,
@@ -313,13 +315,13 @@ impl App {
                 for pane in self.layout.right_sidebar.panes.iter_mut() {
                     pane.refresh_git_status(map);
                 }
-                let staged: Vec<String> = self
+                let staged: Vec<(String, bool)> = self
                     .git
                     .summary
                     .entries
                     .iter()
                     .filter(|e| e.staged)
-                    .map(|e| e.path.clone())
+                    .map(|e| (e.path.clone(), e.deleted))
                     .collect();
                 for pane in self.layout.bottom_panel.panes.iter_mut() {
                     pane.refresh_staged(&staged);

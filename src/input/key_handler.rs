@@ -194,6 +194,15 @@ impl KeyHandler {
                 let inner_y = r.y + 1;
                 let clicked_row = row.saturating_sub(inner_y) as usize;
                 let path = {
+                    let sb = &mut app.layout.left_sidebar;
+                    let active = sb.active;
+                    if let Some(pane) = sb.panes.get_mut(active) {
+                        let len = pane.row_count();
+                        if len > 0 {
+                            pane.select_row(clicked_row.min(len - 1));
+                            app.last_sidebar_click_row = Some(clicked_row.min(len - 1));
+                        }
+                    }
                     let sb = &app.layout.left_sidebar;
                     sb.panes
                         .get(sb.active)
@@ -204,7 +213,35 @@ impl KeyHandler {
                     let is_dir = path.is_dir();
                     let status = app.git.status_by_path.get(&path).copied();
                     let mut items = Vec::new();
-                    if !is_dir {
+                    let deleted = matches!(
+                        status,
+                        Some(crate::git::FileGitStatus::Deleted)
+                    );
+                    if deleted {
+                        // Phantom (already-deleted) entry: only useful action
+                        // is to restore it via unstage.
+                        items.push(MenuItem {
+                            label: "Restore".into(),
+                            command: "git.unstage".into(),
+                            args: Vec::new(),
+                        });
+                    } else if is_dir {
+                        items.push(MenuItem {
+                            label: "Stage All".into(),
+                            command: "git.stage".into(),
+                            args: Vec::new(),
+                        });
+                        items.push(MenuItem {
+                            label: "Unstage All".into(),
+                            command: "git.unstage".into(),
+                            args: Vec::new(),
+                        });
+                        items.push(MenuItem {
+                            label: "Delete".into(),
+                            command: "git.delete".into(),
+                            args: Vec::new(),
+                        });
+                    } else {
                         let staged = matches!(
                             status,
                             Some(crate::git::FileGitStatus::Staged)
@@ -222,6 +259,11 @@ impl KeyHandler {
                                 args: Vec::new(),
                             });
                         }
+                        items.push(MenuItem {
+                            label: "Delete".into(),
+                            command: "git.delete".into(),
+                            args: Vec::new(),
+                        });
                         items.push(MenuItem {
                             label: "View History".into(),
                             command: "git.file_history".into(),
@@ -325,6 +367,13 @@ impl KeyHandler {
 
         // Bottom panel click: select the clicked row, fire the jump, and
         // apply it to the active buffer's cursor. Does NOT focus the panel.
+        // Bottom panel tab strip click: switch active pane.
+        for (i, r) in app.last_bottom_panel_tab_rects.clone().iter().enumerate() {
+            if in_rect(*r) {
+                app.layout.bottom_panel.active = i;
+                return;
+            }
+        }
         if in_rect(app.last_bottom_panel_rect) {
             app.panel_focused = true;
             // Layout inside the panel: 1-cell border + 1-row tab strip,
@@ -561,6 +610,15 @@ impl KeyHandler {
                 if let Some(path) = app.context_menu_path.clone() {
                     if let Err(e) = app.git.unstage(&path) {
                         app.status_message = Some((format!("git unstage: {e}"), true));
+                    } else {
+                        app.refresh_git();
+                    }
+                }
+            }
+            "git.delete" => {
+                if let Some(path) = app.context_menu_path.clone() {
+                    if let Err(e) = app.git.delete(&path) {
+                        app.status_message = Some((format!("git delete: {e}"), true));
                     } else {
                         app.refresh_git();
                     }

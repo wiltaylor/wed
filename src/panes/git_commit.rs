@@ -20,7 +20,7 @@ pub enum CommitFocus {
 }
 
 pub struct GitCommitPane {
-    pub staged: Vec<String>,
+    pub staged: Vec<(String, bool)>,
     pub message: String,
     pub focus: CommitFocus,
     /// Byte offset into `message`.
@@ -77,7 +77,7 @@ fn line_bounds(s: &str, cursor: usize) -> (usize, usize) {
 }
 
 impl GitCommitPane {
-    pub fn set_staged(&mut self, list: Vec<String>) {
+    pub fn set_staged(&mut self, list: Vec<(String, bool)>) {
         self.staged = list;
     }
 
@@ -108,7 +108,7 @@ impl Pane for GitCommitPane {
     fn title(&self) -> &str {
         "Commit"
     }
-    fn refresh_staged(&mut self, staged: &[String]) {
+    fn refresh_staged(&mut self, staged: &[(String, bool)]) {
         self.staged = staged.to_vec();
     }
     fn take_commit_request(&mut self) -> Option<String> {
@@ -153,11 +153,9 @@ impl Pane for GitCommitPane {
             let lines: Vec<Line> = self
                 .staged
                 .iter()
-                .map(|f| {
-                    Line::from(Span::styled(
-                        f.clone(),
-                        Style::default().fg(Color::LightGreen),
-                    ))
+                .map(|(f, deleted)| {
+                    let color = if *deleted { Color::Red } else { Color::LightGreen };
+                    Line::from(Span::styled(f.clone(), Style::default().fg(color)))
                 })
                 .collect();
             frame.render_widget(Paragraph::new(lines), files_inner);

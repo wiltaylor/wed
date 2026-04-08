@@ -8,6 +8,7 @@ pub struct GitStatusEntry {
     pub staged: bool,
     pub unstaged: bool,
     pub untracked: bool,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +79,9 @@ pub fn read_status(root: &Path) -> Option<GitStatusSummary> {
         {
             entry.unstaged = true;
             summary.unstaged += 1;
+        }
+        if st.is_wt_deleted() || st.is_index_deleted() {
+            entry.deleted = true;
         }
         if st.is_wt_new() {
             entry.untracked = true;

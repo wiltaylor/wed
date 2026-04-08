@@ -9,9 +9,14 @@ use ratatui::Frame;
 
 use crate::layout::BottomPanel;
 
-pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: bool) {
+pub fn render(
+    frame: &mut Frame<'_>,
+    panel: &BottomPanel,
+    area: Rect,
+    focused: bool,
+) -> Vec<Rect> {
     if !panel.open || area.width == 0 || area.height == 0 {
-        return;
+        return Vec::new();
     }
     let border_color = if focused { Color::White } else { Color::DarkGray };
     let block = Block::default()
@@ -22,7 +27,7 @@ pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: b
     frame.render_widget(block, area);
 
     if inner.height == 0 || inner.width == 0 {
-        return;
+        return Vec::new();
     }
 
     // Tab strip on row 0 of inner.
@@ -33,8 +38,20 @@ pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: b
         height: 1,
     };
     let mut spans: Vec<Span> = Vec::new();
+    let mut tab_rects: Vec<Rect> = Vec::with_capacity(panel.panes.len());
+    let mut x = tab_rect.x;
+    let max_x = tab_rect.x + tab_rect.width;
     for (i, pane) in panel.panes.iter().enumerate() {
         let label = format!(" {} ", pane.title());
+        let w = label.chars().count() as u16;
+        let r = Rect {
+            x,
+            y: tab_rect.y,
+            width: w.min(max_x.saturating_sub(x)),
+            height: 1,
+        };
+        tab_rects.push(r);
+        x = x.saturating_add(w + 1); // +1 for separator space
         let style = if i == panel.active {
             Style::default()
                 .bg(Color::White)
@@ -50,7 +67,7 @@ pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: b
 
     // Active pane occupies the rows below the tab strip.
     if inner.height < 2 {
-        return;
+        return tab_rects;
     }
     let pane_rect = Rect {
         x: inner.x,
@@ -61,4 +78,5 @@ pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: b
     if let Some(pane) = panel.panes.get(panel.active) {
         pane.render_focused(frame, pane_rect, focused);
     }
+    tab_rects
 }

@@ -186,10 +186,17 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
             // Skip the normal editor render path.
             if let Some(r) = bottom_panel_rect {
                 refresh_bottom_panel(app);
-                bottom_panel_render::render(frame, &app.layout.bottom_panel, r, app.panel_focused);
+                let tabs = bottom_panel_render::render(
+                    frame,
+                    &app.layout.bottom_panel,
+                    r,
+                    app.panel_focused,
+                );
                 app.last_bottom_panel_rect = r;
+                app.last_bottom_panel_tab_rects = tabs;
             } else {
                 app.last_bottom_panel_rect = ratatui::layout::Rect::default();
+                app.last_bottom_panel_tab_rects.clear();
             }
             if let Some(r) = status_rect {
                 statusline::render(frame, app, r);
@@ -245,10 +252,17 @@ pub fn render(frame: &mut Frame<'_>, app: &mut App) {
     // diagnostics, then render.
     if let Some(r) = bottom_panel_rect {
         refresh_bottom_panel(app);
-        bottom_panel_render::render(frame, &app.layout.bottom_panel, r, app.panel_focused);
+        let tabs = bottom_panel_render::render(
+            frame,
+            &app.layout.bottom_panel,
+            r,
+            app.panel_focused,
+        );
         app.last_bottom_panel_rect = r;
+        app.last_bottom_panel_tab_rects = tabs;
     } else {
         app.last_bottom_panel_rect = ratatui::layout::Rect::default();
+        app.last_bottom_panel_tab_rects.clear();
     }
 
     // Statusline (overlaid by command line when in command/search mode).

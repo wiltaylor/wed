@@ -29,6 +29,7 @@ pub fn register_git_commands(reg: &mut CommandRegistry) {
     for name in [
         "git.stage",
         "git.unstage",
+        "git.delete",
         "git.commit",
         "git.file_history",
         "panel.commit",

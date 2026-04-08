@@ -15,6 +15,7 @@ pub enum FileGitStatus {
     Untracked,
     Modified,
     Staged,
+    Deleted,
     Conflicted,
 }
 
@@ -23,7 +24,8 @@ impl FileGitStatus {
     /// Higher wins. Unstaged work beats staged work.
     pub fn priority(self) -> u8 {
         match self {
-            FileGitStatus::Conflicted => 5,
+            FileGitStatus::Conflicted => 6,
+            FileGitStatus::Deleted => 5,
             FileGitStatus::Modified => 4,
             FileGitStatus::Untracked => 3,
             FileGitStatus::Staged => 2,
@@ -97,7 +99,9 @@ impl GitState {
         Ok(())
     }
 
-    /// Unstage a path: reset it to HEAD's version in the index.
+    /// Unstage a path: reset it to HEAD's version in the index. If the
+    /// working-tree file is missing (i.e. it was deleted), restore it from
+    /// HEAD too — "unstage undeletes".
     pub fn unstage(&mut self, abs_path: &Path) -> anyhow::Result<()> {
         let repo = self.open_repo()?;
         let workdir = repo
@@ -109,6 +113,13 @@ impl GitState {
             Ok(head_commit) => {
                 let obj = head_commit.into_object();
                 repo.reset_default(Some(&obj), [rel])?;
+                // If the file is missing from the working tree, force a
+                // checkout from HEAD to bring it back.
+                if !abs_path.exists() {
+                    let mut co = git2::build::CheckoutBuilder::new();
+                    co.path(rel).force();
+                    repo.checkout_head(Some(&mut co))?;
+                }
             }
             Err(_) => {
                 // No HEAD yet (initial commit) → just remove from index.
@@ -121,6 +132,32 @@ impl GitState {
                 index.write()?;
             }
         }
+        self.refresh();
+        Ok(())
+    }
+
+    /// Delete a path from the working tree and stage the deletion. For
+    /// directories, removes recursively. Untracked files are simply
+    /// removed from disk (no index work needed).
+    pub fn delete(&mut self, abs_path: &Path) -> anyhow::Result<()> {
+        let repo = self.open_repo()?;
+        let workdir = repo
+            .workdir()
+            .ok_or_else(|| anyhow::anyhow!("bare repo"))?
+            .to_path_buf();
+        let rel = abs_path
+            .strip_prefix(&workdir)
+            .unwrap_or(abs_path)
+            .to_path_buf();
+        if abs_path.is_dir() {
+            std::fs::remove_dir_all(abs_path)?;
+        } else if abs_path.exists() {
+            std::fs::remove_file(abs_path)?;
+        }
+        // Stage the deletion (no-op for untracked paths).
+        let mut index = repo.index()?;
+        index.update_all([&rel], None)?;
+        index.write()?;
         self.refresh();
         Ok(())
     }
@@ -232,7 +269,9 @@ pub fn compute_status(
     let mut map = HashMap::new();
     for e in &summary.entries {
         let abs = workdir.join(&e.path);
-        let status = if e.staged && e.unstaged {
+        let status = if e.deleted {
+            FileGitStatus::Deleted
+        } else if e.staged && e.unstaged {
             FileGitStatus::Modified
         } else if e.staged {
             FileGitStatus::Staged

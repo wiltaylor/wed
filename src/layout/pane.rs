@@ -43,8 +43,9 @@ pub trait Pane: Send + Sync {
         _map: &std::collections::HashMap<std::path::PathBuf, crate::git::FileGitStatus>,
     ) {
     }
-    /// Push the current list of staged files (paths relative to repo root). Default no-op.
-    fn refresh_staged(&mut self, _staged: &[String]) {}
+    /// Push the current list of staged files (paths relative to repo root)
+    /// along with whether each is a staged deletion. Default no-op.
+    fn refresh_staged(&mut self, _staged: &[(String, bool)]) {}
     /// If the pane wants to perform a git commit, return the message and clear it.
     fn take_commit_request(&mut self) -> Option<String> {
         None

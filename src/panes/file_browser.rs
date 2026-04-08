@@ -31,6 +31,10 @@ pub struct FileBrowserPane {
     /// Cached effective status (file → status, plus aggregated parents).
     /// Recomputed when entries or git_status change, NOT every render.
     effective_cache: HashMap<PathBuf, FileGitStatus>,
+    /// Paths inserted as "phantom" entries because git reports them as
+    /// deleted but they're not on disk. Tracked so we can clean them up
+    /// when git status changes (e.g. after a restore).
+    phantom_paths: HashSet<PathBuf>,
 }
 
 impl Default for FileBrowserPane {
@@ -49,6 +53,7 @@ impl FileBrowserPane {
             last_opened: None,
             git_status: HashMap::new(),
             effective_cache: HashMap::new(),
+            phantom_paths: HashSet::new(),
         };
         me.refresh();
         me
@@ -96,11 +101,78 @@ impl FileBrowserPane {
                 ignored,
             });
         }
+        // Walking the disk dropped any phantoms; rebuild them from
+        // whatever git_status we already have.
+        self.phantom_paths.clear();
+        self.inject_deleted_entries();
         self.rebuild_effective_cache();
     }
 
     /// Build a map from path → effective git status, with directories
     /// reflecting the highest-priority status found among their descendants.
+    /// For each path in `git_status` marked Deleted that lives under our
+    /// root and isn't already in `entries`, insert a phantom entry so the
+    /// user can still see (and act on) the file.
+    fn inject_deleted_entries(&mut self) {
+        // Drop any phantoms from the previous pass first.
+        if !self.phantom_paths.is_empty() {
+            let phantoms = std::mem::take(&mut self.phantom_paths);
+            self.entries.retain(|e| !phantoms.contains(&e.path));
+        }
+        let mut to_add: Vec<PathBuf> = self
+            .git_status
+            .iter()
+            .filter_map(|(p, s)| {
+                if matches!(s, FileGitStatus::Deleted)
+                    && p.starts_with(&self.root)
+                    && !self.entries.iter().any(|e| &e.path == p)
+                {
+                    Some(p.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Stable insertion order so re-renders don't shuffle.
+        to_add.sort();
+        for path in to_add {
+            let depth = path
+                .strip_prefix(&self.root)
+                .map(|p| p.components().count())
+                .unwrap_or(1);
+            // Find insertion point: after the last existing descendant of
+            // this file's parent directory, so it slots into the tree where
+            // it would have been if it still existed on disk.
+            let parent = path.parent();
+            let mut insert_at = self.entries.len();
+            if let Some(parent) = parent {
+                if parent != self.root.as_path() {
+                    if let Some(parent_idx) =
+                        self.entries.iter().position(|e| e.path == parent)
+                    {
+                        let parent_depth = self.entries[parent_idx].depth;
+                        insert_at = parent_idx + 1;
+                        while insert_at < self.entries.len()
+                            && self.entries[insert_at].depth > parent_depth
+                        {
+                            insert_at += 1;
+                        }
+                    }
+                }
+            }
+            self.phantom_paths.insert(path.clone());
+            self.entries.insert(
+                insert_at,
+                FileEntry {
+                    path,
+                    depth,
+                    is_dir: false,
+                    ignored: false,
+                },
+            );
+        }
+    }
+
     fn rebuild_effective_cache(&mut self) {
         let mut eff: HashMap<PathBuf, FileGitStatus> = HashMap::new();
         for e in &self.entries {
@@ -189,6 +261,7 @@ impl FileBrowserPane {
 
     pub fn set_git_status(&mut self, map: HashMap<PathBuf, FileGitStatus>) {
         self.git_status = map;
+        self.inject_deleted_entries();
         self.rebuild_effective_cache();
     }
 }
@@ -206,6 +279,7 @@ impl Pane for FileBrowserPane {
         map: &HashMap<PathBuf, crate::git::FileGitStatus>,
     ) {
         self.git_status = map.clone();
+        self.inject_deleted_entries();
         self.rebuild_effective_cache();
     }
     fn render(&self, frame: &mut Frame<'_>, area: Rect) {
@@ -238,6 +312,7 @@ impl Pane for FileBrowserPane {
                 let status = eff.get(&e.path).copied().unwrap_or(FileGitStatus::Clean);
                 let fg = match status {
                     FileGitStatus::Conflicted => Color::Red,
+                    FileGitStatus::Deleted => Color::Red,
                     FileGitStatus::Modified => Color::Yellow,
                     FileGitStatus::Untracked => Color::Green,
                     FileGitStatus::Staged => Color::LightGreen,
