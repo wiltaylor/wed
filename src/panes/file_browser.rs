@@ -17,6 +17,7 @@ pub struct FileEntry {
     pub path: PathBuf,
     pub depth: usize,
     pub is_dir: bool,
+    pub ignored: bool,
 }
 
 /// Tree-style file browser pane.
@@ -27,6 +28,9 @@ pub struct FileBrowserPane {
     pub selected: usize,
     pub last_opened: Option<PathBuf>,
     pub git_status: HashMap<PathBuf, FileGitStatus>,
+    /// Cached effective status (file → status, plus aggregated parents).
+    /// Recomputed when entries or git_status change, NOT every render.
+    effective_cache: HashMap<PathBuf, FileGitStatus>,
 }
 
 impl Default for FileBrowserPane {
@@ -44,6 +48,7 @@ impl FileBrowserPane {
             selected: 0,
             last_opened: None,
             git_status: HashMap::new(),
+            effective_cache: HashMap::new(),
         };
         me.refresh();
         me
@@ -52,8 +57,21 @@ impl FileBrowserPane {
     pub fn refresh(&mut self) {
         self.entries.clear();
         let root = self.root.clone();
+        // Open the repo (if any) so we can classify ignored paths. We walk
+        // everything (ignore rules disabled in the walker) and defer the
+        // ignore decision to git itself.
+        let repo = git2::Repository::discover(&root).ok();
+        let workdir = repo
+            .as_ref()
+            .and_then(|r| r.workdir().map(|p| p.to_path_buf()));
         for entry in ignore::WalkBuilder::new(&root)
             .hidden(false)
+            .git_ignore(false)
+            .git_exclude(false)
+            .git_global(false)
+            .ignore(false)
+            .parents(false)
+            .filter_entry(|e| e.file_name() != ".git")
             .build()
             .flatten()
         {
@@ -63,12 +81,57 @@ impl FileBrowserPane {
                 continue;
             }
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let ignored = match (repo.as_ref(), workdir.as_ref()) {
+                (Some(r), Some(wd)) => path
+                    .strip_prefix(wd)
+                    .ok()
+                    .and_then(|rel| r.status_should_ignore(rel).ok())
+                    .unwrap_or(false),
+                _ => false,
+            };
             self.entries.push(FileEntry {
                 path,
                 depth,
                 is_dir,
+                ignored,
             });
         }
+        self.rebuild_effective_cache();
+    }
+
+    /// Build a map from path → effective git status, with directories
+    /// reflecting the highest-priority status found among their descendants.
+    fn rebuild_effective_cache(&mut self) {
+        let mut eff: HashMap<PathBuf, FileGitStatus> = HashMap::new();
+        for e in &self.entries {
+            if e.is_dir {
+                continue;
+            }
+            let s = self.git_status.get(&e.path).copied().unwrap_or({
+                if e.ignored {
+                    FileGitStatus::Ignored
+                } else {
+                    FileGitStatus::Clean
+                }
+            });
+            eff.insert(e.path.clone(), s);
+            // Bubble up to ancestors within the root.
+            let mut cur = e.path.as_path();
+            while let Some(parent) = cur.parent() {
+                if !parent.starts_with(&self.root) {
+                    break;
+                }
+                if parent == self.root.as_path() {
+                    break;
+                }
+                let slot = eff.entry(parent.to_path_buf()).or_insert(FileGitStatus::Ignored);
+                if s.priority() > slot.priority() {
+                    *slot = s;
+                }
+                cur = parent;
+            }
+        }
+        self.effective_cache = eff;
     }
 
     pub fn visible(&self) -> Vec<&FileEntry> {
@@ -126,6 +189,7 @@ impl FileBrowserPane {
 
     pub fn set_git_status(&mut self, map: HashMap<PathBuf, FileGitStatus>) {
         self.git_status = map;
+        self.rebuild_effective_cache();
     }
 }
 
@@ -142,9 +206,11 @@ impl Pane for FileBrowserPane {
         map: &HashMap<PathBuf, crate::git::FileGitStatus>,
     ) {
         self.git_status = map.clone();
+        self.rebuild_effective_cache();
     }
     fn render(&self, frame: &mut Frame<'_>, area: Rect) {
         let visible = self.visible();
+        let eff = &self.effective_cache;
         let height = area.height as usize;
         let start = self.selected.saturating_sub(height.saturating_sub(1));
         let lines: Vec<Line> = visible
@@ -169,15 +235,19 @@ impl Pane for FileBrowserPane {
                 };
                 let indent = "  ".repeat(e.depth.saturating_sub(1));
                 let text = format!("{indent}{glyph}{name}");
-                let fg = if e.is_dir {
-                    Color::Cyan
-                } else {
-                    match self.git_status.get(&e.path) {
-                        Some(FileGitStatus::Untracked) => Color::Green,
-                        Some(FileGitStatus::Modified) => Color::Yellow,
-                        Some(FileGitStatus::Staged) => Color::LightGreen,
-                        Some(FileGitStatus::Conflicted) => Color::Red,
-                        _ => Color::Gray,
+                let status = eff.get(&e.path).copied().unwrap_or(FileGitStatus::Clean);
+                let fg = match status {
+                    FileGitStatus::Conflicted => Color::Red,
+                    FileGitStatus::Modified => Color::Yellow,
+                    FileGitStatus::Untracked => Color::Green,
+                    FileGitStatus::Staged => Color::LightGreen,
+                    FileGitStatus::Ignored => Color::DarkGray,
+                    FileGitStatus::Clean => {
+                        if e.is_dir {
+                            Color::Cyan
+                        } else {
+                            Color::Gray
+                        }
                     }
                 };
                 let mut style = Style::default().fg(fg);

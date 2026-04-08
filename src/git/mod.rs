@@ -11,10 +11,26 @@ pub use crate::panes::git::{read_status, GitStatusEntry, GitStatusSummary};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileGitStatus {
     Clean,
+    Ignored,
     Untracked,
     Modified,
     Staged,
     Conflicted,
+}
+
+impl FileGitStatus {
+    /// Priority used when aggregating child statuses to a parent directory.
+    /// Higher wins. Unstaged work beats staged work.
+    pub fn priority(self) -> u8 {
+        match self {
+            FileGitStatus::Conflicted => 5,
+            FileGitStatus::Modified => 4,
+            FileGitStatus::Untracked => 3,
+            FileGitStatus::Staged => 2,
+            FileGitStatus::Clean => 1,
+            FileGitStatus::Ignored => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -46,44 +62,18 @@ impl GitState {
     }
 
     pub fn refresh(&mut self) {
-        self.status_by_path.clear();
-        let summary = match read_status(&self.root) {
-            Some(s) => s,
-            None => {
-                self.repo_present = false;
-                self.summary = GitStatusSummary::default();
-                return;
-            }
-        };
-        self.repo_present = true;
-        // Find the actual repo workdir for absolute path joining.
-        let workdir = git2::Repository::discover(&self.root)
-            .ok()
-            .and_then(|r| r.workdir().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| self.root.clone());
-        for e in &summary.entries {
-            let abs = workdir.join(&e.path);
-            let status = if e.staged && e.unstaged {
-                FileGitStatus::Modified // both → show modified (unstaged wins visually)
-            } else if e.staged {
-                FileGitStatus::Staged
-            } else if e.unstaged {
-                FileGitStatus::Modified
-            } else if e.untracked {
-                FileGitStatus::Untracked
-            } else {
-                FileGitStatus::Clean
-            };
-            self.status_by_path.insert(abs, status);
-        }
-        self.summary = summary;
+        let (summary, map) = compute_status(&self.root);
+        self.repo_present = summary.is_some();
+        self.summary = summary.unwrap_or_default();
+        self.status_by_path = map;
     }
 
     fn open_repo(&self) -> anyhow::Result<git2::Repository> {
         Ok(git2::Repository::discover(&self.root)?)
     }
 
-    /// Stage a path (works for new, modified, or deleted files).
+    /// Stage a path. Works for files (new, modified, deleted) and for
+    /// directories (recursively stages everything below).
     pub fn stage(&mut self, abs_path: &Path) -> anyhow::Result<()> {
         let repo = self.open_repo()?;
         let workdir = repo
@@ -92,7 +82,12 @@ impl GitState {
             .to_path_buf();
         let rel = abs_path.strip_prefix(&workdir).unwrap_or(abs_path);
         let mut index = repo.index()?;
-        if abs_path.exists() {
+        if abs_path.is_dir() {
+            // Add new + modified files under the directory, then capture any
+            // deletions via update_all on the same pathspec.
+            index.add_all([rel], git2::IndexAddOption::DEFAULT, None)?;
+            index.update_all([rel], None)?;
+        } else if abs_path.exists() {
             index.add_path(rel)?;
         } else {
             index.remove_path(rel)?;
@@ -118,7 +113,11 @@ impl GitState {
             Err(_) => {
                 // No HEAD yet (initial commit) → just remove from index.
                 let mut index = repo.index()?;
-                index.remove_path(rel)?;
+                if abs_path.is_dir() {
+                    index.remove_dir(rel, 0)?;
+                } else {
+                    index.remove_path(rel)?;
+                }
                 index.write()?;
             }
         }
@@ -215,6 +214,53 @@ impl GitState {
         }
         Ok(out)
     }
+}
+
+/// Run the synchronous git status walk and return the summary plus the
+/// absolute-path → status map. `summary` is `None` when no repo is present.
+pub fn compute_status(
+    root: &Path,
+) -> (Option<GitStatusSummary>, HashMap<PathBuf, FileGitStatus>) {
+    let summary = match read_status(root) {
+        Some(s) => s,
+        None => return (None, HashMap::new()),
+    };
+    let workdir = git2::Repository::discover(root)
+        .ok()
+        .and_then(|r| r.workdir().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| root.to_path_buf());
+    let mut map = HashMap::new();
+    for e in &summary.entries {
+        let abs = workdir.join(&e.path);
+        let status = if e.staged && e.unstaged {
+            FileGitStatus::Modified
+        } else if e.staged {
+            FileGitStatus::Staged
+        } else if e.unstaged {
+            FileGitStatus::Modified
+        } else if e.untracked {
+            FileGitStatus::Untracked
+        } else {
+            FileGitStatus::Clean
+        };
+        map.insert(abs, status);
+    }
+    (Some(summary), map)
+}
+
+/// Spawn a background task that runs `compute_status` off the main thread
+/// and posts an `AppEvent::GitStatusUpdated` when done.
+pub fn spawn_refresh(
+    root: PathBuf,
+    tx: tokio::sync::mpsc::UnboundedSender<crate::app::AppEvent>,
+) {
+    tokio::task::spawn_blocking(move || {
+        let (summary, status_by_path) = compute_status(&root);
+        let _ = tx.send(crate::app::AppEvent::GitStatusUpdated {
+            summary: summary.unwrap_or_default(),
+            status_by_path,
+        });
+    });
 }
 
 fn format_git_time(t: git2::Time) -> String {

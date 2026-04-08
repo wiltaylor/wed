@@ -52,7 +52,10 @@ pub enum AppEvent {
     DapBreakpointVerified { session: SessionId },
     FileChanged(std::path::PathBuf),
     ConfigReloaded,
-    GitStatusUpdated,
+    GitStatusUpdated {
+        summary: crate::git::GitStatusSummary,
+        status_by_path: std::collections::HashMap<std::path::PathBuf, crate::git::FileGitStatus>,
+    },
     Render,
     Quit,
 }
@@ -193,26 +196,10 @@ impl App {
 
     /// Re-read git status from disk and propagate it to any open panes
     /// that care (file browser, commit pane).
+    /// Kick off a background git status refresh. The result is delivered
+    /// via `AppEvent::GitStatusUpdated` and applied in `dispatch_event`.
     pub fn refresh_git(&mut self) {
-        self.git.refresh();
-        let map = &self.git.status_by_path;
-        for pane in self.layout.left_sidebar.panes.iter_mut() {
-            pane.refresh_git_status(map);
-        }
-        for pane in self.layout.right_sidebar.panes.iter_mut() {
-            pane.refresh_git_status(map);
-        }
-        let staged: Vec<String> = self
-            .git
-            .summary
-            .entries
-            .iter()
-            .filter(|e| e.staged)
-            .map(|e| e.path.clone())
-            .collect();
-        for pane in self.layout.bottom_panel.panes.iter_mut() {
-            pane.refresh_staged(&staged);
-        }
+        crate::git::spawn_refresh(self.git.root.clone(), self.event_tx.clone());
     }
 
     /// Drain `pending_lsp_attach` and start servers + send `did_open`.
@@ -315,8 +302,28 @@ impl App {
     pub fn dispatch_event(&mut self, ev: AppEvent) {
         match ev {
             AppEvent::Quit => self.should_quit = true,
-            AppEvent::GitStatusUpdated => {
-                self.refresh_git();
+            AppEvent::GitStatusUpdated { summary, status_by_path } => {
+                self.git.repo_present = !summary.entries.is_empty() || self.git.repo_present;
+                self.git.summary = summary;
+                self.git.status_by_path = status_by_path;
+                let map = &self.git.status_by_path;
+                for pane in self.layout.left_sidebar.panes.iter_mut() {
+                    pane.refresh_git_status(map);
+                }
+                for pane in self.layout.right_sidebar.panes.iter_mut() {
+                    pane.refresh_git_status(map);
+                }
+                let staged: Vec<String> = self
+                    .git
+                    .summary
+                    .entries
+                    .iter()
+                    .filter(|e| e.staged)
+                    .map(|e| e.path.clone())
+                    .collect();
+                for pane in self.layout.bottom_panel.panes.iter_mut() {
+                    pane.refresh_staged(&staged);
+                }
                 return;
             }
             AppEvent::LspHoverContents { contents } => {
