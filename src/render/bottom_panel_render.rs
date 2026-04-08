@@ -59,6 +59,6 @@ pub fn render(frame: &mut Frame<'_>, panel: &BottomPanel, area: Rect, focused: b
         height: inner.height - 1,
     };
     if let Some(pane) = panel.panes.get(panel.active) {
-        pane.render(frame, pane_rect);
+        pane.render_focused(frame, pane_rect, focused);
     }
 }

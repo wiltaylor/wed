@@ -16,6 +16,11 @@ pub trait Pane: Send + Sync {
     }
 
     fn render(&self, _frame: &mut Frame<'_>, _area: Rect) {}
+    /// Render with knowledge of whether the bottom panel currently has
+    /// keyboard focus. Default delegates to `render`.
+    fn render_focused(&self, frame: &mut Frame<'_>, area: Rect, _focused: bool) {
+        self.render(frame, area);
+    }
     fn handle_key(&mut self, _key: KeyEvent) {}
     fn handle_mouse(&mut self, _mouse: MouseEvent) {}
     fn update(&mut self, _event: &AppEvent) {}

@@ -326,6 +326,7 @@ impl KeyHandler {
         // Bottom panel click: select the clicked row, fire the jump, and
         // apply it to the active buffer's cursor. Does NOT focus the panel.
         if in_rect(app.last_bottom_panel_rect) {
+            app.panel_focused = true;
             // Layout inside the panel: 1-cell border + 1-row tab strip,
             // then the active pane content.
             let pane_y0 = app.last_bottom_panel_rect.y + 2;
@@ -403,6 +404,11 @@ impl KeyHandler {
             return;
         }
 
+        // Any click that reached here is outside the bottom panel and sidebar,
+        // so release their focus.
+        app.panel_focused = false;
+        app.sidebar_focused = false;
+
         // Editor click: figure out which view leaf was hit, set cursor.
         let mut hit: Option<(crate::app::ViewId, ratatui::layout::Rect)> = None;
         for (vid, r) in &app.last_editor_view_rects {
@@ -453,6 +459,7 @@ impl KeyHandler {
                 }
             }
             app.sidebar_focused = false;
+            app.panel_focused = false;
         }
     }
 
@@ -1203,6 +1210,10 @@ impl KeyHandler {
             Key::Esc => Self::exit_insert(app),
             Key::PageDown => Self::motion(app, |b, c| motions::down(b, c, 20)),
             Key::PageUp => Self::motion(app, |b, c| motions::up(b, c, 20)),
+            Key::Left => Self::motion(app, |b, c| motions::left(b, c, 1)),
+            Key::Right => Self::motion(app, |b, c| motions::right(b, c, 1)),
+            Key::Up => Self::motion(app, |b, c| motions::up(b, c, 1)),
+            Key::Down => Self::motion(app, |b, c| motions::down(b, c, 1)),
             Key::Char(c) => Self::insert_str(app, &c.to_string()),
             Key::Enter => Self::insert_str(app, "\n"),
             Key::Tab => {
