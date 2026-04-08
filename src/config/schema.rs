@@ -114,6 +114,8 @@ pub struct DapConfig {
     #[serde(default)]
     pub port_range: Option<(u16, u16)>,
     #[serde(default)]
+    pub filetypes: Vec<String>,
+    #[serde(default)]
     pub configurations: Vec<toml::Value>,
 }
 

@@ -207,6 +207,14 @@ fn dispatch(
             message,
             ..
         } => {
+            tracing::info!(
+                "dap[{:?}] response seq={} command={} success={} message={:?}",
+                session,
+                request_seq,
+                command,
+                success,
+                message
+            );
             if let Some(tx) = pending.lock().remove(&request_seq) {
                 let _ = tx.send(DapResponse {
                     command,
@@ -217,6 +225,7 @@ fn dispatch(
             }
         }
         DapMessage::Event { event, body, .. } => {
+            tracing::info!("dap[{:?}] event {} body={:?}", session, event, body);
             let app_event = match event.as_str() {
                 "stopped" => Some(AppEvent::DapStopped { session }),
                 "continued" => Some(AppEvent::DapContinued { session }),

@@ -21,6 +21,20 @@ pub use protocol::{read_message, write_message, DapMessage};
 pub use session::{DapSession, DapThread, Scope, StackFrame, Variable};
 pub use ui::DebugOverlayState;
 
+/// A DAP control action queued from synchronous key dispatch and drained
+/// by the async run loop in `App::run`.
+#[derive(Debug, Clone)]
+pub enum DapAction {
+    Launch { language: String },
+    Stop,
+    Continue,
+    Next,
+    StepIn,
+    StepOut,
+    Pause,
+    RefreshFrames,
+}
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -37,6 +51,7 @@ pub struct DapManager {
     pub breakpoints: BreakpointStore,
     pub active_session: Option<SessionId>,
     pub event_tx: Option<mpsc::UnboundedSender<AppEvent>>,
+    pub current_thread: Option<i64>,
     next_id: u64,
 }
 
@@ -47,6 +62,7 @@ impl Default for DapManager {
             breakpoints: BreakpointStore::default(),
             active_session: None,
             event_tx: None,
+            current_thread: None,
             next_id: 1,
         }
     }

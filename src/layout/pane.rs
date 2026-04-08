@@ -64,5 +64,11 @@ pub trait Pane: Send + Sync {
     /// Activate the currently selected row (e.g. expand directory or open file).
     fn activate_selected(&mut self) {}
 
+    /// Optional downcast hook so the host can access concrete pane state.
+    /// Default returns `None`.
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
+
     async fn on_event(&mut self) {}
 }

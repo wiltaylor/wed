@@ -118,6 +118,36 @@ pub fn render(
     let ln_style = line_number_style(app);
     let gw = gutter_width(ln_style, total_lines.max(1));
 
+    // Gather DAP state for this buffer: which lines have breakpoints, and
+    // (if the debugger is stopped in this file) the 0-based current line.
+    let (bp_rows, current_stop_row): (std::collections::HashSet<usize>, Option<usize>) = {
+        let canon = buf
+            .and_then(|b| b.path.as_ref())
+            .and_then(|p| std::fs::canonicalize(p).ok());
+        let mut rows = std::collections::HashSet::new();
+        if let Some(path) = &canon {
+            for (bp_path, list) in &app.dap.breakpoints.files {
+                let bp_canon = std::fs::canonicalize(bp_path).unwrap_or_else(|_| bp_path.clone());
+                if &bp_canon == path {
+                    for b in list {
+                        if b.enabled {
+                            rows.insert(b.line.saturating_sub(1) as usize);
+                        }
+                    }
+                }
+            }
+        }
+        let stop = app.dap.active().and_then(|s| s.current_line.as_ref()).and_then(|(p, line)| {
+            let bc = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+            if canon.as_ref() == Some(&bc) {
+                Some(line.saturating_sub(1) as usize)
+            } else {
+                None
+            }
+        });
+        (rows, stop)
+    };
+
     let cursor_row = view.cursor.0;
     let cursor_col = view.cursor.1;
     let scroll_row = view.scroll.0;
@@ -128,8 +158,10 @@ pub fn render(
         let buf_row = scroll_row + screen_row;
         let mut spans: Vec<Span> = Vec::new();
 
+        let has_bp = bp_rows.contains(&buf_row);
+        let is_stop = current_stop_row == Some(buf_row);
         if gw > 0 {
-            let label = match ln_style {
+            let mut label = match ln_style {
                 LineNumberStyle::Absolute => {
                     if buf_row < total_lines {
                         format!("{:>width$} ", buf_row + 1, width = (gw - 1) as usize)
@@ -151,7 +183,27 @@ pub fn render(
                 }
                 LineNumberStyle::None => String::new(),
             };
-            spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+            // Overlay a leading breakpoint/stop marker in the gutter's first
+            // cell. Order of precedence: current-stop arrow beats breakpoint.
+            if (has_bp || is_stop) && !label.is_empty() {
+                let marker = if is_stop { '▶' } else { '●' };
+                let mut chars: Vec<char> = label.chars().collect();
+                chars[0] = marker;
+                label = chars.into_iter().collect();
+                let color = if is_stop { Color::Yellow } else { Color::Red };
+                // Split the gutter into [marker][rest] so the marker color
+                // doesn't bleed into the line number.
+                let mut it = label.chars();
+                let first: String = it.by_ref().take(1).collect();
+                let rest: String = it.collect();
+                spans.push(Span::styled(
+                    first,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ));
+                spans.push(Span::styled(rest, Style::default().fg(Color::DarkGray)));
+            } else {
+                spans.push(Span::styled(label, Style::default().fg(Color::DarkGray)));
+            }
         }
 
         let text_w = (area.width.saturating_sub(gw)) as usize;
@@ -176,6 +228,12 @@ pub fn render(
             &highlight_spans,
             &diag_spans,
         );
+        if is_stop {
+            let bg = Style::default().bg(Color::Rgb(64, 48, 0));
+            for s in &mut text_spans {
+                s.style = s.style.patch(bg);
+            }
+        }
         spans.append(&mut text_spans);
         lines.push(Line::from(spans));
     }

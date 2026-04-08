@@ -215,6 +215,11 @@ impl Keybindings {
             ("ctrl-w-l", "view.focus_right"),
             ("ctrl-w-q", "view.close"),
             ("escape", "mode.normal"),
+            ("F5", "dap.continue"),
+            ("F9", "dap.breakpoint.toggle"),
+            ("F10", "dap.step_over"),
+            ("F11", "dap.step_into"),
+            ("shift-F11", "dap.step_out"),
         ];
         for (k, c) in normal {
             kb.bind(ModeKey::Normal, k, BoundCommand::new(*c)).unwrap();
@@ -257,6 +262,15 @@ impl Keybindings {
             ("gr", "lsp.references"),
             ("x", "panel.toggle"),
             ("gc", "panel.commit"),
+            ("db", "dap.breakpoint.toggle"),
+            ("dd", "dap.launch"),
+            ("dq", "dap.stop"),
+            ("dc", "dap.continue"),
+            ("dn", "dap.step_over"),
+            ("di", "dap.step_into"),
+            ("do", "dap.step_out"),
+            ("dp", "dap.pause"),
+            ("dt", "dap.panel.toggle"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();

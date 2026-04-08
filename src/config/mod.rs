@@ -42,7 +42,30 @@ impl Default for Config {
             keybindings: KeybindingConfig::default(),
             leader_bindings: HashMap::new(),
             lsp: HashMap::new(),
-            dap: HashMap::new(),
+            dap: {
+                let mut m = HashMap::new();
+                let launch: toml::Value = toml::toml! {
+                    name = "Launch (cargo target)"
+                    type = "lldb"
+                    request = "launch"
+                    program = "${workspaceRoot}/target/debug/hello_world"
+                    cwd = "${workspaceRoot}"
+                    stopOnEntry = false
+                }
+                .into();
+                m.insert(
+                    "rust".to_string(),
+                    DapConfig {
+                        command: "lldb-dap".to_string(),
+                        args: vec![],
+                        kind: "lldb".to_string(),
+                        port_range: None,
+                        filetypes: vec!["rust".to_string()],
+                        configurations: vec![launch],
+                    },
+                );
+                m
+            },
             filetype: HashMap::new(),
         }
     }

@@ -95,6 +95,8 @@ pub struct App {
     pub highlight: crate::highlight::HighlightEngine,
     /// Buffer indices waiting for an LSP `start_server` + `did_open`.
     pub pending_lsp_attach: Vec<usize>,
+    /// Drained by the async run loop after each dispatch tick.
+    pub pending_dap_actions: Vec<crate::dap::DapAction>,
     /// Active LSP info popup (diagnostics + hover) shown on `<leader>k`.
     pub hover_popup: Option<HoverPopup>,
     /// Parallel to `app.picker`'s items when that picker was populated by
@@ -159,7 +161,11 @@ impl App {
             layout: LayoutState::default(),
             commands,
             lsp: LspManager::with_event_tx(event_tx.clone()),
-            dap: DapManager::new(),
+            dap: {
+                let mut m = DapManager::new();
+                m.set_event_tx(event_tx.clone());
+                m
+            },
             event_tx,
             event_rx,
             should_quit: false,
@@ -186,6 +192,7 @@ impl App {
             want_col: 0,
             highlight: crate::highlight::HighlightEngine::new(),
             pending_lsp_attach: Vec::new(),
+            pending_dap_actions: Vec::new(),
             hover_popup: None,
             lsp_goto_results: Vec::new(),
             git: GitState::new(
@@ -335,6 +342,35 @@ impl App {
                 }
                 return;
             }
+            AppEvent::DapStopped { .. } => {
+                self.pending_dap_actions
+                    .push(crate::dap::DapAction::RefreshFrames);
+                self.status_message = Some(("⏸ debugger stopped".into(), false));
+                return;
+            }
+            AppEvent::DapContinued { .. } => {
+                // Clear any stale stop location so the arrow disappears.
+                if let Some(s) = self
+                    .dap
+                    .active_session
+                    .and_then(|id| self.dap.sessions.get_mut(&id))
+                {
+                    s.current_line = None;
+                }
+                self.status_message = Some(("▶ debugger running".into(), false));
+                return;
+            }
+            AppEvent::DapTerminated { .. } => {
+                self.dap.active_session = None;
+                self.dap.current_thread = None;
+                self.status_message = Some(("debug session terminated".into(), false));
+                return;
+            }
+            AppEvent::DapOutput { text, .. } => {
+                tracing::info!("dap output: {text}");
+                return;
+            }
+            AppEvent::DapBreakpointVerified { .. } => return,
             AppEvent::LspGotoLocation { label, locations } => {
                 self.handle_lsp_goto(label, locations);
                 return;
@@ -644,6 +680,309 @@ impl App {
         });
     }
 
+    /// Ensure the bottom panel hosts the three DAP panes (breakpoints,
+    /// callstack, variables). Idempotent.
+    pub fn install_dap_panes(&mut self) {
+        let p = &mut self.layout.bottom_panel;
+        let names = ["dap_breakpoints", "dap_callstack", "dap_variables"];
+        for n in names {
+            if !p.panes.iter().any(|pn| pn.name() == n) {
+                match n {
+                    "dap_breakpoints" => p.panes.push(Box::new(
+                        crate::panes::dap_breakpoints::DapBreakpointsPane::new(),
+                    )),
+                    "dap_callstack" => p.panes.push(Box::new(
+                        crate::panes::dap_callstack::DapCallStackPane::new(),
+                    )),
+                    "dap_variables" => p.panes.push(Box::new(
+                        crate::panes::dap_variables::DapVariablesPane::new(),
+                    )),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Push the current persistent breakpoint store into the breakpoints pane.
+    pub fn refresh_breakpoints_pane(&mut self) {
+        let mut bps: Vec<crate::panes::dap_breakpoints::Breakpoint> = Vec::new();
+        for (path, list) in &self.dap.breakpoints.files {
+            for b in list {
+                bps.push(crate::panes::dap_breakpoints::Breakpoint {
+                    path: path.clone(),
+                    line: b.line.saturating_sub(1) as usize,
+                    enabled: b.enabled,
+                });
+            }
+        }
+        for pane in self.layout.bottom_panel.panes.iter_mut() {
+            if pane.name() != "dap_breakpoints" {
+                continue;
+            }
+            if let Some(any) = pane.as_any_mut() {
+                if let Some(p) = any.downcast_mut::<crate::panes::dap_breakpoints::DapBreakpointsPane>() {
+                    p.set_breakpoints(bps.clone());
+                }
+            }
+        }
+    }
+
+    /// Replace stack frames in the callstack pane.
+    pub fn set_callstack_pane(&mut self, frames: Vec<crate::panes::dap_callstack::StackFrame>) {
+        for pane in self.layout.bottom_panel.panes.iter_mut() {
+            if pane.name() != "dap_callstack" {
+                continue;
+            }
+            if let Some(any) = pane.as_any_mut() {
+                if let Some(p) = any.downcast_mut::<crate::panes::dap_callstack::DapCallStackPane>() {
+                    p.set_frames(frames.clone());
+                }
+            }
+        }
+    }
+
+    /// Replace variables in the variables pane.
+    pub fn set_variables_pane(&mut self, vars: Vec<crate::panes::dap_variables::DapVariable>) {
+        for pane in self.layout.bottom_panel.panes.iter_mut() {
+            if pane.name() != "dap_variables" {
+                continue;
+            }
+            if let Some(any) = pane.as_any_mut() {
+                if let Some(p) = any.downcast_mut::<crate::panes::dap_variables::DapVariablesPane>() {
+                    p.set_variables(vars.clone());
+                }
+            }
+        }
+    }
+
+    /// Workspace root for DAP — walk up from the active buffer file looking
+    /// for `Cargo.toml`/`.git`. Falls back to the editor git root.
+    fn dap_workspace_root(&self) -> std::path::PathBuf {
+        let path = self
+            .layout
+            .active_tab()
+            .and_then(|t| t.root.find(t.active_view))
+            .and_then(|v| self.buffers.get(v.buffer_id.0 as usize))
+            .and_then(|b| b.path.clone());
+        if let Some(p) = path {
+            let abs = std::fs::canonicalize(&p).unwrap_or(p);
+            return resolve_workspace_root(&abs, &[]);
+        }
+        self.git.root.clone()
+    }
+
+    /// Async drain for `pending_dap_actions`. Called from the run loop after
+    /// each dispatch tick.
+    async fn drain_pending_dap_actions(&mut self) {
+        use crate::dap::DapAction;
+        let actions = std::mem::take(&mut self.pending_dap_actions);
+        for action in actions {
+            if let Err(e) = self.process_dap_action(action).await {
+                tracing::warn!("dap action failed: {e:#}");
+                self.status_message = Some((format!("dap: {e}"), true));
+            }
+        }
+    }
+
+    async fn process_dap_action(&mut self, action: crate::dap::DapAction) -> anyhow::Result<()> {
+        use crate::dap::DapAction;
+        match action {
+            DapAction::Launch { language } => {
+                let cfg = self
+                    .config
+                    .dap
+                    .get(&language)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("no [dap.{language}] config"))?;
+                let root = self.dap_workspace_root();
+                let id = self
+                    .dap
+                    .start_stdio(language.clone(), &cfg.command, &cfg.args)
+                    .await
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to spawn debug adapter `{}`: {e}. \
+                             Install it and ensure it's on $PATH \
+                             (e.g. `codelldb` from the CodeLLDB VSCode extension).",
+                            cfg.command
+                        )
+                    })?;
+                let adapter_id = if cfg.kind.is_empty() {
+                    language.clone()
+                } else {
+                    cfg.kind.clone()
+                };
+                tracing::info!("dap[{:?}]: spawned {} ok, sending initialize", id, cfg.command);
+                let init_resp = self
+                    .dap
+                    .session(id)
+                    .ok_or_else(|| anyhow::anyhow!("session vanished"))?
+                    .initialize(&adapter_id)
+                    .await?;
+                tracing::info!("dap[{:?}]: initialize resp success={}", id, init_resp.success);
+                let raw = cfg
+                    .configurations
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("no launch configurations"))?;
+                let mut json: serde_json::Value = serde_json::to_value(raw)?;
+                substitute_workspace_root(&mut json, &root);
+                tracing::info!("dap[{:?}]: launch args = {}", id, json);
+                // Correct DAP launch handshake:
+                //   initialize -> launch (fire) -> wait for `initialized` event
+                //   -> setBreakpoints -> configurationDone -> launch response
+                // We don't await `launch` because adapters only ack it after
+                // configurationDone. We sleep briefly so the adapter has time
+                // to emit `initialized` before we push breakpoints (lldb-dap
+                // ignores breakpoints sent before that point).
+                if let Some(s) = self.dap.session(id) {
+                    s.client.notify("launch", Some(json)).await?;
+                    tracing::info!("dap[{:?}]: launch notify sent", id);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let files: Vec<(std::path::PathBuf, Vec<crate::dap::breakpoints::Breakpoint>)> =
+                    self.dap
+                        .breakpoints
+                        .files
+                        .iter()
+                        .map(|(p, v)| (p.clone(), v.clone()))
+                        .collect();
+                tracing::info!(
+                    "dap[{:?}]: pushing breakpoints from {} file(s)",
+                    id,
+                    files.len()
+                );
+                for (path, bps) in files {
+                    let lines: Vec<u32> = bps.iter().map(|b| b.line).collect();
+                    tracing::info!(
+                        "dap[{:?}]: setBreakpoints {} lines={:?}",
+                        id,
+                        path.display(),
+                        lines
+                    );
+                    // Notify (fire-and-forget) so we don't block the run loop
+                    // while lldb-dap loads symbols (can take many seconds).
+                    // The verified-state event arrives async.
+                    let bp_json: Vec<serde_json::Value> = bps
+                        .iter()
+                        .filter(|b| b.enabled)
+                        .map(|b| serde_json::json!({ "line": b.line }))
+                        .collect();
+                    let args = serde_json::json!({
+                        "source": { "path": path.to_string_lossy() },
+                        "breakpoints": bp_json,
+                        "lines": bps.iter().filter(|b| b.enabled).map(|b| b.line).collect::<Vec<_>>(),
+                        "sourceModified": false,
+                    });
+                    if let Some(s) = self.dap.session(id) {
+                        if let Err(e) = s.client.notify("setBreakpoints", Some(args)).await {
+                            tracing::warn!("dap[{:?}]: setBreakpoints notify failed: {e:#}", id);
+                        }
+                    }
+                }
+                if let Some(s) = self.dap.session(id) {
+                    let _ = s.client.notify("configurationDone", None).await;
+                    tracing::info!("dap[{:?}]: configurationDone notify sent", id);
+                }
+                self.status_message = Some(("debug session launched".into(), false));
+            }
+            DapAction::Stop => {
+                if let Some(id) = self.dap.active_session {
+                    self.dap.stop(id).await?;
+                }
+                self.dap.current_thread = None;
+            }
+            DapAction::Continue => {
+                if let (Some(s), Some(t)) = (self.dap.active(), self.dap.current_thread) {
+                    s.continue_(t).await?;
+                }
+            }
+            DapAction::Next => {
+                if let (Some(s), Some(t)) = (self.dap.active(), self.dap.current_thread) {
+                    s.next(t).await?;
+                }
+            }
+            DapAction::StepIn => {
+                if let (Some(s), Some(t)) = (self.dap.active(), self.dap.current_thread) {
+                    s.step_in(t).await?;
+                }
+            }
+            DapAction::StepOut => {
+                if let (Some(s), Some(t)) = (self.dap.active(), self.dap.current_thread) {
+                    s.step_out(t).await?;
+                }
+            }
+            DapAction::Pause => {
+                if let (Some(s), Some(t)) = (self.dap.active(), self.dap.current_thread) {
+                    s.pause(t).await?;
+                }
+            }
+            DapAction::RefreshFrames => {
+                let id = match self.dap.active_session {
+                    Some(i) => i,
+                    None => return Ok(()),
+                };
+                let threads = {
+                    let s = self
+                        .dap
+                        .session_mut(id)
+                        .ok_or_else(|| anyhow::anyhow!("session vanished"))?;
+                    s.threads().await?.to_vec()
+                };
+                let tid = threads.first().map(|t| t.id);
+                self.dap.current_thread = tid;
+                let Some(tid) = tid else { return Ok(()); };
+                let frames = {
+                    let s = self
+                        .dap
+                        .session_mut(id)
+                        .ok_or_else(|| anyhow::anyhow!("session vanished"))?;
+                    s.stack_trace(tid).await?.to_vec()
+                };
+                let pane_frames: Vec<crate::panes::dap_callstack::StackFrame> = frames
+                    .iter()
+                    .map(|f| crate::panes::dap_callstack::StackFrame {
+                        name: f.name.clone(),
+                        source: f.source_path.as_ref().map(|p| p.display().to_string()),
+                        line: f.line.saturating_sub(1) as usize,
+                    })
+                    .collect();
+                let mut all_vars: Vec<crate::panes::dap_variables::DapVariable> = Vec::new();
+                if let Some(top) = frames.first() {
+                    let scopes = {
+                        let s = self
+                            .dap
+                            .session_mut(id)
+                            .ok_or_else(|| anyhow::anyhow!("session vanished"))?;
+                        s.scopes(top.id).await?.to_vec()
+                    };
+                    for scope in scopes {
+                        if scope.variables_reference == 0 {
+                            continue;
+                        }
+                        let vars = {
+                            let s = self
+                                .dap
+                                .session_mut(id)
+                                .ok_or_else(|| anyhow::anyhow!("session vanished"))?;
+                            s.variables(scope.variables_reference).await?.to_vec()
+                        };
+                        for v in vars {
+                            all_vars.push(crate::panes::dap_variables::DapVariable {
+                                name: v.name,
+                                value: v.value,
+                                ty: v.type_,
+                            });
+                        }
+                    }
+                }
+                self.set_callstack_pane(pane_frames);
+                self.set_variables_pane(all_vars);
+            }
+        }
+        Ok(())
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         use crossterm::event::{
             DisableMouseCapture, EnableMouseCapture, Event as CtEvent, EventStream,
@@ -758,6 +1097,9 @@ impl App {
             if !self.pending_lsp_attach.is_empty() {
                 self.drain_pending_lsp_attach().await;
             }
+            if !self.pending_dap_actions.is_empty() {
+                self.drain_pending_dap_actions().await;
+            }
 
             if !self.should_quit {
                 apply_cursor_style(self.mode);
@@ -774,6 +1116,29 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Replace `${workspaceRoot}` with `root` in every string in `value`.
+fn substitute_workspace_root(value: &mut serde_json::Value, root: &std::path::Path) {
+    let root_str = root.display().to_string();
+    match value {
+        serde_json::Value::String(s) => {
+            if s.contains("${workspaceRoot}") {
+                *s = s.replace("${workspaceRoot}", &root_str);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                substitute_workspace_root(v, root);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            for v in obj.values_mut() {
+                substitute_workspace_root(v, root);
+            }
+        }
+        _ => {}
     }
 }
 

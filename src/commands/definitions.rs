@@ -20,6 +20,26 @@ pub fn register_all(reg: &mut CommandRegistry) {
     register_picker_commands(reg);
     register_editor_commands(reg);
     register_git_commands(reg);
+    register_dap_commands(reg);
+}
+
+/// DAP commands. Bodies are stubs at the registry layer; the real
+/// dispatch lives in `KeyHandler::run_leader_command` which mutates
+/// `App.dap` and bottom-panel panes directly.
+pub fn register_dap_commands(reg: &mut CommandRegistry) {
+    for name in [
+        "dap.breakpoint.toggle",
+        "dap.launch",
+        "dap.stop",
+        "dap.continue",
+        "dap.step_over",
+        "dap.step_into",
+        "dap.step_out",
+        "dap.pause",
+        "dap.panel.toggle",
+    ] {
+        reg.register(name, |_ctx, _| Ok(()));
+    }
 }
 
 /// Git commands. Their bodies are stubs at the registry layer; the

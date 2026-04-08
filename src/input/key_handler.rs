@@ -678,6 +678,84 @@ impl KeyHandler {
                     p.active = (p.active + 1) % p.panes.len();
                 }
             }
+            "dap.breakpoint.toggle" => {
+                // Toggle a breakpoint at the cursor in the active buffer.
+                let target = app.layout.active_tab().and_then(|t| {
+                    t.root.find(t.active_view).map(|v| (v.cursor.0, v.buffer_id.0 as usize))
+                });
+                if let Some((row, buf_idx)) = target {
+                    let path = app.buffers.get(buf_idx).and_then(|b| b.path.clone());
+                    if let Some(path) = path {
+                        let abs = std::fs::canonicalize(&path).unwrap_or(path);
+                        let line = (row + 1) as u32;
+                        let now_present = app.dap.breakpoints.toggle(&abs, line);
+                        let root = app.git.root.clone();
+                        if let Err(e) = app.dap.breakpoints.save(&root) {
+                            tracing::warn!("save breakpoints: {e:#}");
+                        }
+                        app.install_dap_panes();
+                        app.refresh_breakpoints_pane();
+                        let p = &mut app.layout.bottom_panel;
+                        p.open = true;
+                        app.status_message = Some((
+                            format!(
+                                "breakpoint {} at {}:{}",
+                                if now_present { "set" } else { "removed" },
+                                abs.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                                line
+                            ),
+                            false,
+                        ));
+                    } else {
+                        app.status_message = Some(("no file path for buffer".into(), true));
+                    }
+                }
+            }
+            "dap.launch" => {
+                // Pick the dap config matching the active buffer's language.
+                let lang = app
+                    .layout
+                    .active_tab()
+                    .and_then(|t| t.root.find(t.active_view))
+                    .and_then(|v| app.buffers.get(v.buffer_id.0 as usize))
+                    .and_then(|b| b.language_id.clone())
+                    .unwrap_or_else(|| "rust".to_string());
+                app.install_dap_panes();
+                app.refresh_breakpoints_pane();
+                app.layout.bottom_panel.open = true;
+                app.pending_dap_actions
+                    .push(crate::dap::DapAction::Launch { language: lang });
+            }
+            "dap.stop" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::Stop);
+            }
+            "dap.continue" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::Continue);
+            }
+            "dap.step_over" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::Next);
+            }
+            "dap.step_into" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::StepIn);
+            }
+            "dap.step_out" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::StepOut);
+            }
+            "dap.pause" => {
+                app.pending_dap_actions.push(crate::dap::DapAction::Pause);
+            }
+            "dap.panel.toggle" => {
+                app.install_dap_panes();
+                app.refresh_breakpoints_pane();
+                let p = &mut app.layout.bottom_panel;
+                if let Some(idx) = p.panes.iter().position(|pn| pn.name() == "dap_breakpoints") {
+                    p.active = idx;
+                }
+                p.open = !p.open;
+                if !p.open {
+                    app.panel_focused = false;
+                }
+            }
             "sidebar.left_toggle" => {
                 let sb = &mut app.layout.left_sidebar;
                 if sb.panes.is_empty() {
@@ -1235,6 +1313,14 @@ impl KeyHandler {
                 }
             }
             Key::Char('.') => Self::dot_repeat(app),
+            Key::F(5) => Self::run_leader_command(app, "dap.continue"),
+            Key::F(9) => Self::run_leader_command(app, "dap.breakpoint.toggle"),
+            Key::F(10) => Self::run_leader_command(app, "dap.step_over"),
+            Key::F(11) => {
+                let shift = false; // crossterm modifiers not surfaced in Key enum
+                let _ = shift;
+                Self::run_leader_command(app, "dap.step_into");
+            }
             Key::Esc => app.pending.reset(),
             _ => {}
         }

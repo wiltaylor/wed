@@ -4,3 +4,19 @@ leader = "<space>"
 command = "rust-analyzer"
 filetypes = ["rust"]
 root_patterns = ["Cargo.toml", ".git"]
+
+# Default Rust debug adapter. Requires `lldb-dap` on PATH
+# (Arch: `sudo pacman -S lldb`).
+[dap.rust]
+command = "lldb-dap"
+args = []
+type = "lldb"
+filetypes = ["rust"]
+
+[[dap.rust.configurations]]
+name = "Launch hello_world"
+type = "lldb"
+request = "launch"
+program = "${workspaceRoot}/target/debug/hello_world"
+cwd = "${workspaceRoot}"
+stopOnEntry = false
