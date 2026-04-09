@@ -8,6 +8,9 @@ build:
 release:
     cargo build --release
 
+install:
+    cargo install --path . --force
+
 run *args:
     cargo run -- {{ if args == "" { "examples/hello_world_rust/src/main.rs" } else { args } }}
 

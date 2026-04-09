@@ -1,0 +1,197 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      do_release: ${{ steps.compute.outputs.do_release }}
+      version: ${{ steps.compute.outputs.version }}
+      is_prerelease: ${{ steps.compute.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: compute
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IS_RELEASE=$(git log -1 --format='%(trailers:key=release,valueonly)' | tr -d '[:space:]')
+          IS_PRERELEASE=$(git log -1 --format='%(trailers:key=pre-release,valueonly)' | tr -d '[:space:]')
+
+          if [[ "${{ github.event_name }}" != "push" || "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "do_release=false" >> "$GITHUB_OUTPUT"
+            echo "Not a push to main; skipping release."
+            exit 0
+          fi
+
+          if [[ "$IS_RELEASE" != "true" && "$IS_PRERELEASE" != "true" ]]; then
+            echo "do_release=false" >> "$GITHUB_OUTPUT"
+            echo "No release/pre-release trailer; skipping release."
+            exit 0
+          fi
+
+          LAST_TAG=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo "")
+          if [[ -z "$LAST_TAG" ]]; then
+            PREV_MAJOR=0; PREV_MINOR=1; PREV_PATCH=0
+            RANGE="HEAD"
+          else
+            CLEAN="${LAST_TAG#v}"
+            CLEAN="${CLEAN%-alpha}"
+            IFS='.' read -r PREV_MAJOR PREV_MINOR PREV_PATCH <<<"$CLEAN"
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          BUMP="none"
+          while IFS= read -r HASH; do
+            [[ -z "$HASH" ]] && continue
+            S=$(git log -1 --format='%s' "$HASH")
+            B=$(git log -1 --format='%b' "$HASH")
+            if echo "$S" | grep -qE '^[a-z]+(\(.+\))?!:' || echo "$B" | grep -qiE '^BREAKING[ -]CHANGE:'; then
+              BUMP="major"
+            elif echo "$S" | grep -qE '^feat(\(.+\))?:' && [[ "$BUMP" != "major" ]]; then
+              BUMP="minor"
+            elif echo "$S" | grep -qE '^(fix|perf|refactor|build|ci|docs|style|test|chore|revert)(\(.+\))?:' && [[ "$BUMP" == "none" ]]; then
+              BUMP="patch"
+            fi
+          done < <(git log --format='%H' $RANGE)
+          [[ "$BUMP" == "none" ]] && BUMP="patch"
+
+          MAJOR=$PREV_MAJOR; MINOR=$PREV_MINOR; PATCH=$PREV_PATCH
+          case "$BUMP" in
+            major)
+              if [[ "$PREV_MAJOR" -eq 0 ]]; then
+                MINOR=$((PREV_MINOR + 1)); PATCH=0
+              else
+                MAJOR=$((PREV_MAJOR + 1)); MINOR=0; PATCH=0
+              fi ;;
+            minor) MINOR=$((PREV_MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PREV_PATCH + 1)) ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            VERSION="${VERSION}-alpha"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "do_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Computed version: ${VERSION} (bump=${BUMP}, prev=${PREV_MAJOR}.${PREV_MINOR}.${PREV_PATCH})"
+
+          {
+            echo "## Changes"
+            if [[ -n "$LAST_TAG" ]]; then
+              git log --pretty='- %s (%h)' "${LAST_TAG}..HEAD"
+            else
+              git log --pretty='- %s (%h)' HEAD
+            fi
+          } > CHANGELOG_BODY.md
+
+      - uses: actions/upload-artifact@v4
+        if: steps.compute.outputs.do_release == 'true'
+        with:
+          name: changelog
+          path: CHANGELOG_BODY.md
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: wed-linux-x86_64
+            bin: wed
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: wed-windows-x86_64.exe
+            bin: wed.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Stamp version
+        if: needs.version.outputs.do_release == 'true'
+        shell: bash
+        run: |
+          sed -i.bak "0,/^version = .*/s/^version = .*/version = \"${{ needs.version.outputs.version }}\"/" Cargo.toml
+          rm Cargo.toml.bak
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.do_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Bump Cargo.toml, commit, tag
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          sed -i.bak "0,/^version = .*/s/^version = .*/version = \"${VERSION}\"/" Cargo.toml
+          rm Cargo.toml.bak
+          # Update Cargo.lock if it exists
+          if [[ -f Cargo.lock ]]; then
+            # Best-effort: regenerate lockfile entry without full build
+            cargo update -p wed --precise "${VERSION}" 2>/dev/null || true
+          fi
+          git add Cargo.toml Cargo.lock 2>/dev/null || git add Cargo.toml
+          git commit -m "chore(release): v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin "HEAD:main" "v${VERSION}"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: v${{ needs.version.outputs.version }}
+          prerelease: ${{ needs.version.outputs.is_prerelease == 'true' }}
+          body_path: artifacts/changelog/CHANGELOG_BODY.md
+          files: |
+            artifacts/wed-linux-x86_64/wed-linux-x86_64
+            artifacts/wed-windows-x86_64.exe/wed-windows-x86_64.exe
