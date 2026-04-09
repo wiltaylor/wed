@@ -892,6 +892,98 @@ impl KeyHandler {
         }
     }
 
+    /// Build a scratch buffer listing every leader binding, per-mode
+    /// binding, and registered command, and open it in a new tab.
+    fn open_help_reference(app: &mut App) {
+        use crate::config::keybindings::{KeyTrie, ModeKey};
+        use crate::render::popup::key_label;
+
+        fn walk(
+            node: &KeyTrie,
+            prefix: &mut Vec<crate::input::keys::Key>,
+            out: &mut Vec<(String, String)>,
+        ) {
+            if let Some(cmd) = &node.command {
+                let keys: String = prefix.iter().copied().map(key_label).collect::<Vec<_>>().join(" ");
+                out.push((keys, cmd.command.clone()));
+            }
+            let mut kids: Vec<_> = node.children.iter().collect();
+            kids.sort_by_key(|(k, _)| format!("{:?}", k));
+            for (k, child) in kids {
+                prefix.push(*k);
+                walk(child, prefix, out);
+                prefix.pop();
+            }
+        }
+
+        let mut text = String::new();
+        text.push_str("# wed — keybinding & command reference\n\n");
+        text.push_str("This is a read-only scratch buffer. :bd to close.\n\n");
+
+        // Leader bindings.
+        text.push_str("## Leader bindings\n");
+        text.push_str(&format!("Leader key: {}\n\n", key_label(app.keybindings.leader_key)));
+        let mut leader_rows = Vec::new();
+        walk(&app.keybindings.leader, &mut Vec::new(), &mut leader_rows);
+        leader_rows.sort();
+        let lead_prefix = key_label(app.keybindings.leader_key);
+        for (keys, cmd) in &leader_rows {
+            text.push_str(&format!("  {} {:<10}  {}\n", lead_prefix, keys, cmd));
+        }
+        text.push('\n');
+
+        // Per-mode bindings.
+        for (label, mode) in [
+            ("Normal", ModeKey::Normal),
+            ("Insert", ModeKey::Insert),
+            ("Visual", ModeKey::Visual),
+        ] {
+            if let Some(trie) = app.keybindings.per_mode.get(&mode) {
+                text.push_str(&format!("## {label} mode\n"));
+                let mut rows = Vec::new();
+                walk(trie, &mut Vec::new(), &mut rows);
+                rows.sort();
+                for (keys, cmd) in &rows {
+                    text.push_str(&format!("  {:<12}  {}\n", keys, cmd));
+                }
+                text.push('\n');
+            }
+        }
+
+        // Commands.
+        text.push_str("## Registered commands\n");
+        let mut names: Vec<String> = app.commands.names().cloned().collect();
+        names.sort();
+        for n in &names {
+            text.push_str(&format!("  {n}\n"));
+        }
+
+        // Build the buffer and place it in a new tab.
+        let mut buf = crate::editor::Buffer::from_str(&text);
+        let new_idx = app.buffers.len();
+        buf.id = crate::app::BufferId(new_idx as u64);
+        buf.dirty = false;
+        app.buffers.push(buf);
+        let mut max = 0u64;
+        for tab in &app.layout.tabs {
+            for (id, _) in tab.root.iter_leaves() {
+                if id.0 > max {
+                    max = id.0;
+                }
+            }
+        }
+        let vid = crate::app::ViewId(max + 1);
+        let mut view = crate::layout::View::new(vid, crate::app::BufferId(new_idx as u64));
+        view.cursor = (0, 0);
+        let tab = crate::layout::Tab::new(
+            "[help]",
+            crate::layout::SplitNode::Leaf(view),
+            vid,
+        );
+        app.layout.tabs.push(tab);
+        app.layout.active_tab = app.layout.tabs.len() - 1;
+    }
+
     fn run_leader_command(app: &mut App, name: &str) {
         match name {
             "annotation.prompt" => {
@@ -1154,6 +1246,9 @@ impl KeyHandler {
                 if !p.open {
                     app.panel_focused = false;
                 }
+            }
+            "help.reference" => {
+                Self::open_help_reference(app);
             }
             "view.split_horizontal" | "view.split_vertical" => {
                 let dir = if name == "view.split_horizontal" {

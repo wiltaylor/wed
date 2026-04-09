@@ -7,7 +7,7 @@ use ratatui::Frame;
 use crate::app::App;
 use crate::input::keys::Key;
 
-fn key_label(k: Key) -> String {
+pub fn key_label(k: Key) -> String {
     match k {
         Key::Char(' ') => "SPC".into(),
         Key::Char(c) => c.to_string(),

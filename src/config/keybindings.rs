@@ -276,6 +276,7 @@ impl Keybindings {
             ("wq", "view.close"),
             ("w=", "view.resize_wider"),
             ("w-", "view.resize_narrower"),
+            ("?", "help.reference"),
         ];
         for (k, c) in leader {
             kb.bind_leader(k, BoundCommand::new(*c)).unwrap();
