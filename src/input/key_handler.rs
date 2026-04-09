@@ -64,6 +64,20 @@ fn buf(app: &App) -> Option<&Buffer> {
     app.buffers.get(i)
 }
 
+/// Allocate a fresh `ViewId` that doesn't collide with any existing leaf
+/// in any tab. Simple max+1 over the currently tracked layout.
+fn next_view_id(app: &App) -> u64 {
+    let mut max = 0u64;
+    for tab in &app.layout.tabs {
+        for (id, _) in tab.root.iter_leaves() {
+            if id.0 > max {
+                max = id.0;
+            }
+        }
+    }
+    max + 1
+}
+
 fn op_char(op: Operator) -> char {
     match op {
         Operator::Delete => 'd',
@@ -277,6 +291,16 @@ impl KeyHandler {
                         items.push(MenuItem {
                             label: "View History".into(),
                             command: "git.file_history".into(),
+                            args: Vec::new(),
+                        });
+                        items.push(MenuItem {
+                            label: "Open in Split (vertical)".into(),
+                            command: "tree.open_split_vertical".into(),
+                            args: Vec::new(),
+                        });
+                        items.push(MenuItem {
+                            label: "Open in Split (horizontal)".into(),
+                            command: "tree.open_split_horizontal".into(),
                             args: Vec::new(),
                         });
                     }
@@ -946,6 +970,18 @@ impl KeyHandler {
                 app.panel_focused = true;
                 app.refresh_git();
             }
+            "tree.open_split_vertical" | "tree.open_split_horizontal" => {
+                if let Some(path) = app.context_menu_path.clone() {
+                    let dir = if name == "tree.open_split_vertical" {
+                        crate::layout::Direction::Right
+                    } else {
+                        crate::layout::Direction::Down
+                    };
+                    if let Err(e) = app.open_file_in_split(&path, dir) {
+                        app.status_message = Some((format!("open split: {e}"), true));
+                    }
+                }
+            }
             "tree.refresh" => {
                 let sb = &mut app.layout.left_sidebar;
                 for pane in sb.panes.iter_mut() {
@@ -1117,6 +1153,56 @@ impl KeyHandler {
                 p.open = !p.open;
                 if !p.open {
                     app.panel_focused = false;
+                }
+            }
+            "view.split_horizontal" | "view.split_vertical" => {
+                let dir = if name == "view.split_horizontal" {
+                    crate::layout::Direction::Down
+                } else {
+                    crate::layout::Direction::Right
+                };
+                let new_id = crate::app::ViewId(next_view_id(app));
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    let active = tab.active_view;
+                    if let Some(created) = tab.root.split_active(active, dir, new_id) {
+                        tab.active_view = created;
+                    }
+                }
+            }
+            "view.close" => {
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    let active = tab.active_view;
+                    if let Some(next) = tab.root.close_active(active) {
+                        tab.active_view = next;
+                    }
+                }
+            }
+            "view.focus_left" | "view.focus_right" | "view.focus_up" | "view.focus_down" => {
+                let area = app.last_editor_rect;
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    let active = tab.active_view;
+                    let next = match name {
+                        "view.focus_left" => tab.root.focus_left(active, area),
+                        "view.focus_right" => tab.root.focus_right(active, area),
+                        "view.focus_up" => tab.root.focus_up(active, area),
+                        "view.focus_down" => tab.root.focus_down(active, area),
+                        _ => None,
+                    };
+                    if let Some(id) = next {
+                        tab.active_view = id;
+                    }
+                }
+            }
+            "view.resize_wider" => {
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    let active = tab.active_view;
+                    tab.root.resize(active, 0.05);
+                }
+            }
+            "view.resize_narrower" => {
+                if let Some(tab) = app.layout.active_tab_mut() {
+                    let active = tab.active_view;
+                    tab.root.resize(active, -0.05);
                 }
             }
             "sidebar.left_toggle" => {

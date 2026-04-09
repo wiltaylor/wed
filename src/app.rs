@@ -394,6 +394,62 @@ impl App {
         Ok(())
     }
 
+    /// Load (or reuse) a buffer for `path` and place it in a new split next
+    /// to the active view in the current tab.
+    pub fn open_file_in_split(
+        &mut self,
+        path: &std::path::Path,
+        direction: crate::layout::Direction,
+    ) -> anyhow::Result<()> {
+        let target_canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        // Reuse an existing buffer if possible, otherwise load from disk.
+        let buf_idx = match self.buffers.iter().position(|b| {
+            b.path
+                .as_deref()
+                .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()))
+                == Some(target_canon.clone())
+        }) {
+            Some(i) => i,
+            None => {
+                let mut buf = crate::editor::Buffer::from_path(path)?;
+                let new_idx = self.buffers.len();
+                buf.id = BufferId(new_idx as u64);
+                if buf.language_id.is_some() {
+                    self.pending_lsp_attach.push(new_idx);
+                }
+                self.buffers.push(buf);
+                new_idx
+            }
+        };
+        // Allocate a fresh ViewId that doesn't collide with any existing leaf.
+        let mut max = 0u64;
+        for tab in &self.layout.tabs {
+            for (id, _) in tab.root.iter_leaves() {
+                if id.0 > max {
+                    max = id.0;
+                }
+            }
+        }
+        let new_id = ViewId(max + 1);
+        // Ensure we have a tab to split into.
+        if self.layout.tabs.is_empty() {
+            return self.open_file_in_new_tab(path);
+        }
+        let Some(tab) = self.layout.active_tab_mut() else {
+            return self.open_file_in_new_tab(path);
+        };
+        let active = tab.active_view;
+        if let Some(created) = tab.root.split_active(active, direction, new_id) {
+            if let Some(view) = tab.root.find_mut(created) {
+                view.buffer_id = BufferId(buf_idx as u64);
+                view.cursor = (0, 0);
+                view.scroll = (0, 0);
+            }
+            tab.active_view = created;
+        }
+        Ok(())
+    }
+
     /// Dispatch a single AppEvent into editor state.
     pub fn dispatch_event(&mut self, ev: AppEvent) {
         match ev {
