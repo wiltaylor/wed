@@ -280,6 +280,11 @@ impl KeyHandler {
                             args: Vec::new(),
                         });
                     }
+                    items.push(MenuItem {
+                        label: "Refresh Tree".into(),
+                        command: "tree.refresh".into(),
+                        args: Vec::new(),
+                    });
                     if !items.is_empty() {
                         app.context_menu = Some(ContextMenu::new(items, col, row));
                         app.context_menu_path = Some(path);
@@ -940,6 +945,20 @@ impl KeyHandler {
                 p.open = true;
                 app.panel_focused = true;
                 app.refresh_git();
+            }
+            "tree.refresh" => {
+                let sb = &mut app.layout.left_sidebar;
+                for pane in sb.panes.iter_mut() {
+                    if let Some(any) = pane.as_any_mut() {
+                        if let Some(fb) = any
+                            .downcast_mut::<crate::panes::file_browser::FileBrowserPane>()
+                        {
+                            fb.refresh();
+                        }
+                    }
+                }
+                app.refresh_git();
+                app.status_message = Some(("tree refreshed".into(), false));
             }
             "git.stage" => {
                 if let Some(path) = app.context_menu_path.clone() {

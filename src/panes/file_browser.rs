@@ -327,7 +327,13 @@ impl Pane for FileBrowserPane {
                 };
                 let mut style = Style::default().fg(fg);
                 if i == self.selected {
-                    style = style.bg(Color::DarkGray).add_modifier(Modifier::BOLD);
+                    // Force a readable foreground on top of the highlight
+                    // background — otherwise dim colours (e.g. Ignored's
+                    // DarkGray) disappear against DarkGray.
+                    style = Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Blue)
+                        .add_modifier(Modifier::BOLD);
                 }
                 Line::from(Span::styled(text, style))
             })
@@ -358,6 +364,9 @@ impl Pane for FileBrowserPane {
             KeyCode::Enter => self.activate(),
             _ => {}
         }
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
     }
 }
 

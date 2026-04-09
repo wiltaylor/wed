@@ -1,11 +1,6 @@
 //! User annotations on files — comment + file + line tuples persisted
-//! to `<repo-root>/annotations.txt`. The file is a plain-text, one
-//! annotation per line format so it can be handed to AI agents or read
-//! by any other tool:
-//!
-//! ```text
-//! path/relative/to/root.rs:42: the comment text
-//! ```
+//! to `<repo-root>/.wed/annotations.json` as a machine-readable map from
+//! (repo-relative) path to a sorted list of `{line, comment}` entries.
 //!
 //! Paths are stored relative to the repo root when possible. Absolute
 //! paths are kept verbatim for files outside the root.
@@ -14,8 +9,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Annotation {
     /// 1-based line number.
     pub line: u32,
@@ -34,81 +30,43 @@ impl AnnotationStore {
     }
 
     fn store_path(root: &Path) -> PathBuf {
-        root.join(".wed").join("annotations.txt")
+        root.join(".wed").join("annotations.json")
     }
 
-    /// Load from `<root>/.wed/annotations.txt`. If that file is missing
-    /// but a legacy `<root>/annotations.txt` exists, load from the legacy
-    /// location (it will migrate automatically on the next save).
+    /// Load from `<root>/.wed/annotations.json`. Missing file → empty store.
     pub fn load(root: &Path) -> Result<Self> {
-        let mut path = Self::store_path(root);
+        let path = Self::store_path(root);
         if !path.exists() {
-            let legacy = root.join("annotations.txt");
-            if legacy.exists() {
-                path = legacy;
-            } else {
-                return Ok(Self::default());
-            }
+            return Ok(Self::default());
         }
-        let text = std::fs::read_to_string(&path)?;
+        let bytes = std::fs::read(&path)?;
+        let raw: BTreeMap<String, Vec<Annotation>> = serde_json::from_slice(&bytes)?;
         let mut store = Self::default();
-        for line in text.lines() {
-            let line = line.trim_end();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            // Split from the right on ": " first to peel off the comment,
-            // then find the last `:` before it to peel off the line number.
-            let Some((head, comment)) = line.split_once(": ") else {
-                continue;
-            };
-            let Some((path_str, line_str)) = head.rsplit_once(':') else {
-                continue;
-            };
-            let Ok(ln) = line_str.parse::<u32>() else {
-                continue;
-            };
-            let raw = PathBuf::from(path_str);
-            let abs = if raw.is_absolute() {
-                raw
-            } else {
-                root.join(&raw)
-            };
+        for (path_str, mut list) in raw {
+            let rawp = PathBuf::from(&path_str);
+            let abs = if rawp.is_absolute() { rawp } else { root.join(&rawp) };
             let canon = std::fs::canonicalize(&abs).unwrap_or(abs);
-            store
-                .files
-                .entry(canon)
-                .or_default()
-                .push(Annotation { line: ln, comment: comment.to_string() });
-        }
-        for v in store.files.values_mut() {
-            v.sort_by_key(|a| a.line);
+            list.sort_by_key(|a| a.line);
+            store.files.insert(canon, list);
         }
         Ok(store)
     }
 
-    /// Persist to `<root>/.wed/annotations.txt`. Paths are written relative
-    /// to `root` when possible.
+    /// Persist to `<root>/.wed/annotations.json`. Paths are written
+    /// relative to `root` when possible.
     pub fn save(&self, root: &Path) -> Result<()> {
         crate::utils::wed_dir::ensure(root)?;
         let path = Self::store_path(root);
-        // Clean up the legacy location if we just migrated.
-        let legacy = root.join("annotations.txt");
-        if legacy.exists() && legacy != path {
-            let _ = std::fs::remove_file(&legacy);
-        }
-        let mut out = String::new();
-        for (file, list) in &self.files {
-            let rel = pathdiff_relative(file, root).unwrap_or_else(|| file.clone());
-            let path_str = rel.to_string_lossy();
-            for a in list {
-                // Strip any stray newlines in the comment to keep the
-                // format one-per-line.
-                let comment = a.comment.replace(['\n', '\r'], " ");
-                out.push_str(&format!("{}:{}: {}\n", path_str, a.line, comment));
-            }
-        }
-        std::fs::write(path, out)?;
+        let out: BTreeMap<String, &Vec<Annotation>> = self
+            .files
+            .iter()
+            .map(|(file, list)| {
+                let rel = pathdiff_relative(file, root).unwrap_or_else(|| file.clone());
+                (rel.to_string_lossy().into_owned(), list)
+            })
+            .collect();
+        let bytes = serde_json::to_vec_pretty(&out)?;
+        std::fs::write(path, bytes)?;
         Ok(())
     }
 
