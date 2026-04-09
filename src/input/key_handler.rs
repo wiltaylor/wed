@@ -20,10 +20,17 @@ use crate::input::mode::{EditorMode, Operator, PendingKey, VisualKind};
 /// View-agnostic helper: returns the active buffer index and a (row,col) cursor.
 fn active_buffer_index(app: &App) -> Option<usize> {
     if app.buffers.is_empty() {
-        None
-    } else {
-        Some(0)
+        return None;
     }
+    if let Some(tab) = app.layout.active_tab() {
+        if let Some(view) = tab.root.find(tab.active_view) {
+            let bid = view.buffer_id;
+            if let Some(idx) = app.buffers.iter().position(|b| b.id == bid) {
+                return Some(idx);
+            }
+        }
+    }
+    Some(0)
 }
 
 fn cursor_of(app: &App) -> Cursor {
@@ -2522,6 +2529,49 @@ mod tests {
         KeyHandler::handle(&mut app, Key::Char('a'));
         KeyHandler::handle(&mut app, Key::Char('('));
         assert_eq!(app.buffers[0].rope.to_string(), "call end");
+    }
+
+    #[test]
+    fn caw_changes_a_word() {
+        let mut app = app_with("foo bar baz");
+        KeyHandler::handle(&mut app, Key::Char('c'));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        KeyHandler::handle(&mut app, Key::Char('w'));
+        assert_eq!(app.buffers[0].rope.to_string(), "bar baz");
+        assert_eq!(app.mode, EditorMode::Insert);
+    }
+
+    #[test]
+    fn caw_on_last_word_no_newline() {
+        let mut app = app_with("foo bar");
+        for _ in 0..4 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
+        KeyHandler::handle(&mut app, Key::Char('c'));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        KeyHandler::handle(&mut app, Key::Char('w'));
+        assert_eq!(app.mode, EditorMode::Insert);
+    }
+
+    #[test]
+    fn caw_on_empty_buffer() {
+        let mut app = app_with("");
+        KeyHandler::handle(&mut app, Key::Char('c'));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        KeyHandler::handle(&mut app, Key::Char('w'));
+        assert_eq!(app.mode, EditorMode::Insert);
+    }
+
+    #[test]
+    fn caw_on_word_at_end_of_line_with_newline() {
+        let mut app = app_with("foo bar\nbaz\n");
+        for _ in 0..4 {
+            KeyHandler::handle(&mut app, Key::Char('l'));
+        }
+        KeyHandler::handle(&mut app, Key::Char('c'));
+        KeyHandler::handle(&mut app, Key::Char('a'));
+        KeyHandler::handle(&mut app, Key::Char('w'));
+        assert_eq!(app.mode, EditorMode::Insert);
     }
 
     #[test]

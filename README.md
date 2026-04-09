@@ -292,3 +292,12 @@ The default leader key is `Space`.
 | `<leader>w` | Save |
 | `<leader>q` | Quit |
 | `<leader>e` | Open config |
+
+---
+
+## Contributing
+
+Pull requests are **disabled**. wed is a personal tool I build for my own use,
+and I'm not looking to take on the maintenance burden of merging and supporting
+outside contributions. The source is open so others can read it, learn from it,
+and use it as inspiration to build their own editor — fork freely.
