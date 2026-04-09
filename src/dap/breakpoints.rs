@@ -64,10 +64,8 @@ impl BreakpointStore {
 
     /// Persist the store to `<root>/.wed/breakpoints.json`.
     pub fn save(&self, root: &Path) -> Result<()> {
+        crate::utils::wed_dir::ensure(root)?;
         let path = Self::store_path(root);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let bytes = serde_json::to_vec_pretty(self)?;
         std::fs::write(path, bytes)?;
         Ok(())

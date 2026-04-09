@@ -34,14 +34,21 @@ impl AnnotationStore {
     }
 
     fn store_path(root: &Path) -> PathBuf {
-        root.join("annotations.txt")
+        root.join(".wed").join("annotations.txt")
     }
 
-    /// Load from `<root>/annotations.txt`. Missing file → empty store.
+    /// Load from `<root>/.wed/annotations.txt`. If that file is missing
+    /// but a legacy `<root>/annotations.txt` exists, load from the legacy
+    /// location (it will migrate automatically on the next save).
     pub fn load(root: &Path) -> Result<Self> {
-        let path = Self::store_path(root);
+        let mut path = Self::store_path(root);
         if !path.exists() {
-            return Ok(Self::default());
+            let legacy = root.join("annotations.txt");
+            if legacy.exists() {
+                path = legacy;
+            } else {
+                return Ok(Self::default());
+            }
         }
         let text = std::fs::read_to_string(&path)?;
         let mut store = Self::default();
@@ -80,10 +87,16 @@ impl AnnotationStore {
         Ok(store)
     }
 
-    /// Persist to `<root>/annotations.txt`. Paths are written relative
+    /// Persist to `<root>/.wed/annotations.txt`. Paths are written relative
     /// to `root` when possible.
     pub fn save(&self, root: &Path) -> Result<()> {
+        crate::utils::wed_dir::ensure(root)?;
         let path = Self::store_path(root);
+        // Clean up the legacy location if we just migrated.
+        let legacy = root.join("annotations.txt");
+        if legacy.exists() && legacy != path {
+            let _ = std::fs::remove_file(&legacy);
+        }
         let mut out = String::new();
         for (file, list) in &self.files {
             let rel = pathdiff_relative(file, root).unwrap_or_else(|| file.clone());
