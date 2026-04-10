@@ -246,6 +246,7 @@ impl Keybindings {
             ("ff", "search.files"),
             ("fg", "search.project"),
             ("fb", "buffer.list"),
+            ("fj", "just.run"),
             ("fs", "buffer.save"),
             ("q", "app.quit"),
             ("e", "sidebar.left_toggle"),

@@ -126,6 +126,10 @@ impl KeyHandler {
             return;
         }
         // Picker overlay swallows all input.
+        if app.just_picker.is_some() {
+            Self::handle_just_picker(app, key);
+            return;
+        }
         if app.picker.is_some() {
             Self::handle_picker(app, key);
             return;
@@ -1005,6 +1009,17 @@ impl KeyHandler {
                 Self::open_annotation_picker(app);
                 return;
             }
+            "just.run" => {
+                match crate::panes::picker::picker_just_recipes() {
+                    Some(picker) => {
+                        app.just_picker = Some(picker);
+                        app.picker_query.clear();
+                    }
+                    None => {
+                        app.status_message = Some(("no justfile found".into(), true));
+                    }
+                }
+            }
             "search.files" => {
                 let root =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -1418,6 +1433,59 @@ impl KeyHandler {
                     if let Err(e) = app.open_file_in_new_tab(&path) {
                         app.status_message = Some((format!("open failed: {e}"), true));
                     }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_just_picker(app: &mut App, key: Key) {
+        let Some(picker) = app.just_picker.as_mut() else {
+            return;
+        };
+        match key {
+            Key::Esc => {
+                app.just_picker = None;
+                app.picker_query.clear();
+            }
+            Key::Up => picker.move_up(),
+            Key::Down => picker.move_down(),
+            Key::Backspace => {
+                app.picker_query.pop();
+                picker.set_query(app.picker_query.clone());
+            }
+            Key::Char(c) => {
+                app.picker_query.push(c);
+                picker.set_query(app.picker_query.clone());
+            }
+            Key::Enter => {
+                let namepath = picker.current().map(|r| r.namepath.clone());
+                app.just_picker = None;
+                app.picker_query.clear();
+                if let Some(namepath) = namepath {
+                    // Find or create the JustPane in the bottom panel.
+                    let panel = &mut app.layout.bottom_panel;
+                    let idx = panel.panes.iter().position(|p| p.name() == "just");
+                    let idx = match idx {
+                        Some(i) => i,
+                        None => {
+                            panel.panes.push(Box::new(
+                                crate::panes::just::JustPane::new(app.event_tx.clone()),
+                            ));
+                            panel.panes.len() - 1
+                        }
+                    };
+                    // Downcast and run.
+                    if let Some(any) = panel.panes[idx].as_any_mut() {
+                        if let Some(just_pane) =
+                            any.downcast_mut::<crate::panes::just::JustPane>()
+                        {
+                            just_pane.run(&namepath);
+                        }
+                    }
+                    panel.active = idx;
+                    panel.open = true;
+                    app.panel_focused = true;
                 }
             }
             _ => {}

@@ -144,6 +144,69 @@ pub fn picker_symbols(symbols: Vec<String>) -> Picker<String> {
     Picker::new(symbols)
 }
 
+// ---------- just recipes ----------
+
+/// A just recipe with its namepath (for execution) and display label.
+pub struct JustRecipe {
+    /// The namepath used to run the recipe, e.g. `"mod::build"`.
+    pub namepath: String,
+    /// Display label: `"namepath — description"` or just `"namepath"`.
+    display: String,
+}
+
+impl PickerItem for JustRecipe {
+    fn label(&self) -> String {
+        self.display.clone()
+    }
+}
+
+/// Build a picker over public `just` recipes (including submodules).
+/// Returns `None` if `just` is not available or no justfile is found.
+pub fn picker_just_recipes() -> Option<Picker<JustRecipe>> {
+    let output = std::process::Command::new("just")
+        .args(["--dump", "--dump-format", "json", "--list-submodules"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let mut items = Vec::new();
+    collect_recipes(&json, &mut items);
+    if items.is_empty() {
+        return None;
+    }
+    Some(Picker::new(items))
+}
+
+fn collect_recipes(node: &serde_json::Value, out: &mut Vec<JustRecipe>) {
+    if let Some(recipes) = node.get("recipes").and_then(|r| r.as_object()) {
+        for recipe in recipes.values() {
+            let private = recipe.get("private").and_then(|v| v.as_bool()).unwrap_or(false);
+            if private {
+                continue;
+            }
+            let namepath = recipe
+                .get("namepath")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let doc = recipe.get("doc").and_then(|v| v.as_str()).unwrap_or_default();
+            let display = if doc.is_empty() {
+                namepath.clone()
+            } else {
+                format!("{namepath} — {doc}")
+            };
+            out.push(JustRecipe { namepath, display });
+        }
+    }
+    if let Some(modules) = node.get("modules").and_then(|m| m.as_object()) {
+        for module in modules.values() {
+            collect_recipes(module, out);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

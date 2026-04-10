@@ -33,9 +33,21 @@ pub fn key_label(k: Key) -> String {
 }
 
 pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let Some(picker) = app.picker.as_ref() else {
-        return;
-    };
+    // Determine which picker is active and extract (title, selected, matches, label_fn).
+    if let Some(picker) = app.just_picker.as_ref() {
+        render_generic_picker(frame, app, area, " Just Recipes ", picker);
+    } else if let Some(picker) = app.picker.as_ref() {
+        render_generic_picker(frame, app, area, " Files ", picker);
+    }
+}
+
+fn render_generic_picker<T: crate::panes::picker::PickerItem>(
+    frame: &mut Frame<'_>,
+    app: &App,
+    area: Rect,
+    title: &str,
+    picker: &crate::panes::picker::Picker<T>,
+) {
     if area.width < 10 || area.height < 5 {
         return;
     }
@@ -51,7 +63,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
     frame.render_widget(Clear, popup_area);
     let block = Block::default()
-        .title(" Files ")
+        .title(title)
         .borders(Borders::ALL)
         .style(Style::default().bg(Color::Black).fg(Color::White));
     let inner = block.inner(popup_area);
@@ -91,7 +103,7 @@ pub fn render(frame: &mut Frame<'_>, app: &App, area: Rect) {
             let label = picker
                 .items
                 .get(*idx)
-                .map(|p| p.to_string_lossy().into_owned())
+                .map(|item| item.label())
                 .unwrap_or_default();
             let mut style = Style::default().fg(Color::Gray);
             if i == picker.selected {

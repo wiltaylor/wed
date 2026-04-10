@@ -11,6 +11,11 @@ pub trait Pane: Send + Sync {
     fn title(&self) -> &str {
         self.name()
     }
+    /// Override to return a dynamic title string (e.g. with status indicators).
+    /// When `Some`, used in place of `title()` for the tab label.
+    fn dynamic_title(&self) -> Option<String> {
+        None
+    }
     fn icon(&self) -> &str {
         ""
     }

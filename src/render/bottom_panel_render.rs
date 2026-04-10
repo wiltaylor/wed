@@ -42,7 +42,8 @@ pub fn render(
     let mut x = tab_rect.x;
     let max_x = tab_rect.x + tab_rect.width;
     for (i, pane) in panel.panes.iter().enumerate() {
-        let label = format!(" {} ", pane.title());
+        let title = pane.dynamic_title().unwrap_or_else(|| pane.title().to_string());
+        let label = format!(" {} ", title);
         let w = label.chars().count() as u16;
         let r = Rect {
             x,
