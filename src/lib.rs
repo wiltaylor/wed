@@ -9,6 +9,7 @@ pub mod config;
 pub mod dap;
 pub mod editor;
 pub mod git;
+pub mod grammars;
 pub mod highlight;
 pub mod input;
 pub mod layout;

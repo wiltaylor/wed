@@ -2,6 +2,8 @@ use once_cell::sync::Lazy;
 use std::path::Path;
 use tree_sitter::Language;
 
+use crate::grammars;
+
 /// Minimal highlights query for Rust.
 const RUST_HIGHLIGHTS: &str = r#"
 [
@@ -27,12 +29,12 @@ const RUST_HIGHLIGHTS: &str = r#"
 
 /// Minimal highlights query for JSON.
 const JSON_HIGHLIGHTS: &str = r#"
-[
-  "true" "false" "null"
-] @keyword
+[(true) (false) (null)] @keyword
 
+(pair key: (string) @property)
 (string) @string
-(number) @type
+(number) @number
+(escape_sequence) @string
 (comment) @comment
 "#;
 
@@ -68,7 +70,7 @@ const PYTHON_HIGHLIGHTS: &str = r#"
   "assert" "del" "is"
 ] @keyword
 
-[ "True" "False" "None" ] @constant
+[(true) (false) (none)] @constant
 
 (string) @string
 (integer) @number
@@ -88,10 +90,11 @@ const JAVASCRIPT_HIGHLIGHTS: &str = r#"
   "default" "break" "continue" "var" "let" "const" "new" "delete"
   "typeof" "instanceof" "in" "of" "class" "extends" "import" "export"
   "from" "as" "try" "catch" "finally" "throw" "async" "await" "yield"
-  "this"
 ] @keyword
 
-[ "true" "false" "null" "undefined" ] @constant
+(this) @keyword
+
+[(true) (false) (null) (undefined)] @constant
 
 (string) @string
 (template_string) @string
@@ -108,7 +111,7 @@ const JAVASCRIPT_HIGHLIGHTS: &str = r#"
 const BASH_HIGHLIGHTS: &str = r#"
 [
   "if" "then" "else" "elif" "fi" "case" "esac" "for" "while" "do" "done"
-  "in" "function" "return" "local" "declare" "export"
+  "in" "function" "local" "declare" "export"
 ] @keyword
 
 (comment) @comment
@@ -235,6 +238,41 @@ const JUST_HIGHLIGHTS: &str = r#"
 (numeric_error) @keyword
 "#;
 
+const GITATTRIBUTES_HIGHLIGHTS: &str = r#"
+(comment) @comment
+
+(macro_tag) @keyword
+(macro_def macro_name: (_) @property)
+
+(attribute (attr_name) @variable)
+(attribute (builtin_attr) @keyword)
+
+[(attr_reset) (attr_unset) (attr_set)] @operator
+(range_negation) @operator
+
+(boolean_value) @keyword
+(string_value) @string
+
+(wildcard) @operator
+(quoted_pattern "\"" @string)
+(range_notation) @string
+(range_notation ["[" "]"] @punctuation)
+(character_class) @constant
+
+[(ansi_c_escape) (escaped_char)] @string
+
+[(pattern_negation) (redundant_escape) (trailing_slash)] @operator
+"#;
+
+const GITIGNORE_HIGHLIGHTS: &str = r#"
+(comment) @comment
+
+(pattern) @string
+
+(bracket_expr) @string
+(bracket_char_class) @constant
+"#;
+
 pub struct GrammarEntry {
     pub id: &'static str,
     pub language: Language,
@@ -304,6 +342,16 @@ impl GrammarRegistry {
                     language: tree_sitter_just::LANGUAGE.into(),
                     highlights_query: JUST_HIGHLIGHTS,
                 },
+                GrammarEntry {
+                    id: "gitattributes",
+                    language: grammars::gitattributes::LANGUAGE.into(),
+                    highlights_query: GITATTRIBUTES_HIGHLIGHTS,
+                },
+                GrammarEntry {
+                    id: "gitignore",
+                    language: grammars::gitignore::LANGUAGE.into(),
+                    highlights_query: GITIGNORE_HIGHLIGHTS,
+                },
             ],
         }
     }
@@ -323,6 +371,11 @@ impl GrammarRegistry {
             match name {
                 ".bashrc" | ".bash_profile" | "bashrc" => return self.for_language("bash"),
                 "justfile" | "Justfile" | ".justfile" => return self.for_language("just"),
+                ".gitattributes" => return self.for_language("gitattributes"),
+                ".gitignore" | ".ignore" | ".dockerignore" | ".prettierignore"
+                | ".eslintignore" | ".fdignore" | ".rgignore" => {
+                    return self.for_language("gitignore")
+                }
                 _ => {}
             }
         }
@@ -374,5 +427,19 @@ mod tests {
         let reg = GrammarRegistry::global();
         assert!(reg.for_language("rust").is_some());
         assert!(reg.for_language("nope").is_none());
+    }
+
+    #[test]
+    fn all_queries_parse() {
+        let reg = GrammarRegistry::global();
+        for entry in &reg.entries {
+            let result = tree_sitter::Query::new(&entry.language, entry.highlights_query);
+            assert!(
+                result.is_ok(),
+                "Query failed for language '{}': {:?}",
+                entry.id,
+                result.err()
+            );
+        }
     }
 }
