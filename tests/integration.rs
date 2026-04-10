@@ -22,8 +22,8 @@ fn buffer_basic_edit_undo() {
 #[test]
 fn highlight_engine_runs_on_rust_buffer() {
     let mut engine = HighlightEngine::default();
-    let b = Buffer::from_str("fn main() { let x = 1; }");
-    let _spans = engine.highlight(&b);
+    let mut b = Buffer::from_str("fn main() { let x = 1; }");
+    let _spans = engine.highlight(&mut b);
 }
 
 #[test]

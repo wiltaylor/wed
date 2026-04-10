@@ -1,6 +1,6 @@
 use ropey::Rope;
 use std::collections::HashMap;
-use tree_sitter::{InputEdit, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{InputEdit, Parser, Query, QueryCursor, QueryPredicate, QueryPredicateArg, Tree};
 
 use crate::app::BufferId;
 use crate::config::Theme;
@@ -93,6 +93,52 @@ fn parse_rope(parser: &mut Parser, text: &Rope, old: Option<&Tree>) -> Option<Tr
     )
 }
 
+/// Evaluate general predicates (e.g. `#any-of?`, `#not-any-of?`) for a match.
+///
+/// Tree-sitter 0.25 handles `#eq?`, `#match?`, `#not-eq?` etc. internally;
+/// only custom predicates land in `general_predicates`. Unknown predicates
+/// pass by default so we don't block highlighting for unrecognized operators.
+fn evaluate_predicates(
+    predicates: &[QueryPredicate],
+    captures: &[tree_sitter::QueryCapture],
+    source: &[u8],
+) -> bool {
+    for pred in predicates {
+        let op = pred.operator.as_ref();
+        match op {
+            "any-of?" | "not-any-of?" => {
+                let mut args = pred.args.iter();
+                // First arg must be a capture reference.
+                let capture_idx = match args.next() {
+                    Some(QueryPredicateArg::Capture(idx)) => *idx,
+                    _ => continue,
+                };
+                // Resolve capture to node text.
+                let text = match captures.iter().find(|c| c.index == capture_idx) {
+                    Some(cap) => {
+                        let start = cap.node.start_byte();
+                        let end = cap.node.end_byte();
+                        if end <= source.len() {
+                            std::str::from_utf8(&source[start..end]).unwrap_or("")
+                        } else {
+                            ""
+                        }
+                    }
+                    None => "",
+                };
+                // Remaining args are the allowed string values.
+                let matches_any = args.any(|arg| matches!(arg, QueryPredicateArg::String(s) if s.as_ref() == text));
+                let pass = if op == "any-of?" { matches_any } else { !matches_any };
+                if !pass {
+                    return false;
+                }
+            }
+            _ => {} // Unknown predicates pass.
+        }
+    }
+    true
+}
+
 /// Run a tree-sitter query against `tree` and return raw spans.
 pub fn highlight_spans(tree: &Tree, query: &Query, source: &[u8]) -> Vec<(usize, usize, String)> {
     use streaming_iterator::StreamingIterator;
@@ -101,6 +147,10 @@ pub fn highlight_spans(tree: &Tree, query: &Query, source: &[u8]) -> Vec<(usize,
     let mut out = Vec::new();
     let mut matches = cursor.matches(query, tree.root_node(), source);
     while let Some(m) = matches.next() {
+        let predicates = query.general_predicates(m.pattern_index);
+        if !predicates.is_empty() && !evaluate_predicates(predicates, m.captures, source) {
+            continue;
+        }
         for cap in m.captures {
             let name = capture_names[cap.index as usize].to_string();
             let node = cap.node;

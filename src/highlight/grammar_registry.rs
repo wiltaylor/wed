@@ -148,6 +148,93 @@ const YAML_HIGHLIGHTS: &str = r#"
 (block_mapping_pair key: (flow_node) @property)
 "#;
 
+const JUST_HIGHLIGHTS: &str = r#"
+["export" "import"] @keyword
+
+"mod" @keyword
+
+["alias" "set" "shell"] @keyword
+
+["if" "else"] @keyword
+
+(value (identifier) @variable)
+(alias left: (identifier) @variable)
+(assignment left: (identifier) @variable)
+
+(recipe_header name: (identifier) @function)
+(dependency name: (identifier) @function)
+(dependency_expression name: (identifier) @function)
+(function_call name: (identifier) @function)
+
+(parameter name: (identifier) @variable.parameter)
+
+(module name: (identifier) @type)
+
+[
+  ":=" "?" "==" "!=" "=~" "@" "=" "$" "*" "+" "&&" "@-" "-@" "-" "/" ":"
+] @operator
+
+"," @punctuation.delimiter
+
+["{" "}" "[" "]" "(" ")" "{{" "}}"] @punctuation.bracket
+
+["`" "```"] @punctuation.special
+
+(boolean) @keyword
+
+[(string) (external_command)] @string
+
+(escape_sequence) @string.escape
+
+(comment) @comment
+
+(shebang) @keyword
+
+(setting
+  left: (identifier) @keyword
+  (#any-of? @keyword
+    "allow-duplicate-recipes"
+    "allow-duplicate-variables"
+    "dotenv-filename"
+    "dotenv-load"
+    "dotenv-path"
+    "dotenv-required"
+    "export"
+    "fallback"
+    "ignore-comments"
+    "positional-arguments"
+    "shell"
+    "shell-interpreter"
+    "tempdir"
+    "windows-powershell"
+    "windows-shell"
+    "working-directory"))
+
+(attribute
+  (identifier) @attribute
+  (#any-of? @attribute
+    "confirm"
+    "doc"
+    "extension"
+    "group"
+    "linux"
+    "macos"
+    "metadata"
+    "no-cd"
+    "no-exit-message"
+    "no-quiet"
+    "openbsd"
+    "parallel"
+    "positional-arguments"
+    "private"
+    "script"
+    "unix"
+    "windows"
+    "working-directory"))
+
+(numeric_error) @keyword
+"#;
+
 pub struct GrammarEntry {
     pub id: &'static str,
     pub language: Language,
@@ -212,6 +299,11 @@ impl GrammarRegistry {
                     language: tree_sitter_yaml::LANGUAGE.into(),
                     highlights_query: YAML_HIGHLIGHTS,
                 },
+                GrammarEntry {
+                    id: "just",
+                    language: tree_sitter_just::LANGUAGE.into(),
+                    highlights_query: JUST_HIGHLIGHTS,
+                },
             ],
         }
     }
@@ -230,6 +322,7 @@ impl GrammarRegistry {
         if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
             match name {
                 ".bashrc" | ".bash_profile" | "bashrc" => return self.for_language("bash"),
+                "justfile" | "Justfile" | ".justfile" => return self.for_language("just"),
                 _ => {}
             }
         }
@@ -245,6 +338,7 @@ impl GrammarRegistry {
             "html" | "htm" => "html",
             "css" => "css",
             "yaml" | "yml" => "yaml",
+            "just" => "just",
             _ => return None,
         };
         self.for_language(id)
